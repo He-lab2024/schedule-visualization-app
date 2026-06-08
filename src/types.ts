@@ -1,0 +1,78 @@
+export type CategoryId = 'writing' | 'experiment' | 'data' | 'learning' | 'life' | 'recovery';
+export type TaskStatus = 'planned' | 'active' | 'done' | 'delayed' | 'blocked' | 'cancelled';
+export type ViewId = 'today' | 'week' | 'projects' | 'workbench' | 'review' | 'settings';
+export type EnergyLevel = '低' | '中' | '高';
+
+export type Category = {
+  id: CategoryId;
+  name: string;
+  color: string;
+  soft: string;
+};
+
+export type Task = {
+  id: string;
+  title: string;
+  category: CategoryId;
+  projectId: string;
+  date: string;
+  start: string;
+  duration: number;
+  energy: EnergyLevel;
+  location: string;
+  status: TaskStatus;
+  standard: string;
+  dependency: string;
+  delayReason?: string;
+  detail: string;
+  priority?: 1 | 2 | 3;
+  paperFields?: {
+    chapter: string;
+    figure: string;
+    version: string;
+    feedback: string;
+  };
+  experimentFields?: {
+    sample: string;
+    instrument: string;
+    condition: string;
+    waiting: string;
+    reservation: string;
+  };
+};
+
+export type ProjectLane = {
+  id: string;
+  name: string;
+  category: CategoryId;
+  stage: string;
+  progress: number;
+  next: string;
+  blocker: string;
+  cadence: string;
+};
+
+export type WeekDay = {
+  date: string;
+  label: string;
+  short: string;
+};
+
+export type Widget = {
+  id: string;
+  name: string;
+  visible: boolean;
+};
+
+export type ViewPreset = {
+  id: string;
+  name: string;
+  widgetIds: string[];
+  focusCategories: CategoryId[];
+};
+
+export type FieldTemplate = {
+  id: string;
+  name: string;
+  fields: string[];
+};
