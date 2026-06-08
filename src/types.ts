@@ -29,12 +29,6 @@ export type Task = {
   notes?: string;
   detail: string;
   priority?: 1 | 2 | 3;
-  paperFields?: {
-    chapter: string;
-    figure: string;
-    version: string;
-    feedback: string;
-  };
   experimentFields?: {
     sample: string;
     instrument: string;

@@ -104,13 +104,7 @@ export const tasks: Task[] = [
     priority: 1,
     standard: '完成引言第二版并标出缺口句',
     dependency: '',
-    detail: '围绕胺供体优化、平衡推动和工艺适配重新组织段落。',
-    paperFields: {
-      chapter: '引言',
-      figure: '图 3 逻辑铺垫',
-      version: 'v0.7.2',
-      feedback: '导师批注 4 条',
-    },
+    detail: '',
   },
   {
     id: 't2',
@@ -218,7 +212,7 @@ export const tasks: Task[] = [
   },
   {
     id: 't7',
-    title: '共同作者反馈整合',
+    title: '作者意见整合',
     category: 'writing',
     projectId: 'p-paper-ta',
     date: '2026-06-11',
@@ -227,16 +221,10 @@ export const tasks: Task[] = [
     energy: '高',
     location: '办公室',
     status: 'delayed',
-    standard: '回复 12 条批注并更新版本号',
+    standard: '回复 12 条批注并整理修改清单',
     dependency: '导师批注',
     delayReason: '实验数据确认推迟',
-    detail: '将语言问题和科学解释问题拆开处理。',
-    paperFields: {
-      chapter: '结果与讨论',
-      figure: '图 3 / 图 4',
-      version: 'v0.7.2 comments',
-      feedback: '共同作者 12 条批注',
-    },
+    detail: '',
   },
   {
     id: 't8',
@@ -289,7 +277,7 @@ export const viewPresets: ViewPreset[] = [
 ];
 
 export const fieldTemplates: FieldTemplate[] = [
-  { id: 'writing', name: '论文任务', fields: ['章节', '图表', '版本', '共同作者反馈', '做到什么算完成'] },
+  { id: 'writing', name: '论文任务', fields: ['做到什么算完成', '前置条件/等待事项', '补充记录'] },
   { id: 'experiment', name: '实验任务', fields: ['样品', '仪器', '条件', '等待结果/等待事项', '预约状态'] },
   { id: 'data', name: '数据任务', fields: ['数据来源', '脚本/Notebook', '输出物', '复现状态'] },
   { id: 'life', name: '生活/恢复', fields: ['地点', '对象', '边界说明', '恢复等级'] },

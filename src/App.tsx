@@ -166,20 +166,11 @@ const priorityLabel: Record<1 | 2 | 3, string> = {
 };
 
 const locationCategories = new Set(['experiment', 'life', 'recovery']);
-const paperCategories = new Set(['writing']);
 const dataCategories = new Set(['data']);
 const lifeCategories = new Set(['life', 'recovery']);
 
 const needsLocation = (category: CategoryId) => locationCategories.has(category);
 const templateForCategory = (category: CategoryId) => (category === 'writing' ? 'writing' : category);
-
-const makePaperFields = (task?: Task) =>
-  task?.paperFields ?? {
-    chapter: '',
-    figure: '',
-    version: '',
-    feedback: '',
-  };
 
 const makeExperimentFields = (task?: Task) =>
   task?.experimentFields ?? {
@@ -210,7 +201,6 @@ const normalizeTaskForCategory = (task: Task, category: CategoryId): Task => ({
   ...task,
   category,
   location: needsLocation(category) ? task.location : '',
-  paperFields: paperCategories.has(category) ? makePaperFields(task) : undefined,
   experimentFields: category === 'experiment' ? makeExperimentFields(task) : undefined,
   dataFields: dataCategories.has(category) ? makeDataFields(task) : undefined,
   lifeFields: lifeCategories.has(category) ? makeLifeFields(task) : undefined,
@@ -338,10 +328,6 @@ const matchesSearch = (task: Task, query: string, categoryList: Category[], proj
   const categoryName = getCategory(categoryList, task.category).name;
   const projectName = toMap(projectList)[task.projectId]?.name ?? '';
   const typedFields = [
-    task.paperFields?.chapter,
-    task.paperFields?.figure,
-    task.paperFields?.version,
-    task.paperFields?.feedback,
     task.experimentFields?.sample,
     task.experimentFields?.instrument,
     task.experimentFields?.condition,
@@ -356,7 +342,7 @@ const matchesSearch = (task: Task, query: string, categoryList: Category[], proj
     task.lifeFields?.boundary,
     task.lifeFields?.recoveryLevel,
   ];
-  return [task.title, task.location, task.detail, task.standard, task.dependency, categoryName, projectName, ...typedFields]
+  return [task.title, task.location, task.standard, task.dependency, task.notes, categoryName, projectName, ...typedFields]
     .join(' ')
     .toLowerCase()
     .includes(normalized);
@@ -607,8 +593,7 @@ function App() {
     dependency: '',
     delayReason: '',
     notes: project ? `来自项目「${project.name}」的下一步任务。` : '',
-    detail: project ? project.next : '',
-    paperFields: paperCategories.has(project?.category ?? 'writing') ? makePaperFields() : undefined,
+    detail: '',
     experimentFields: project?.category === 'experiment' ? makeExperimentFields() : undefined,
     dataFields: dataCategories.has(project?.category ?? 'writing') ? makeDataFields() : undefined,
     lifeFields: lifeCategories.has(project?.category ?? 'writing') ? makeLifeFields() : undefined,
@@ -1968,18 +1953,18 @@ function Workbench({
 }) {
   const writingTasks = allTasks.filter((task) => task.category === 'writing');
   const experimentTasks = allTasks.filter((task) => task.category === 'experiment');
-  const currentPaper = writingTasks.find((task) => task.paperFields)?.paperFields;
   const currentExperiment = experimentTasks.find((task) => task.experimentFields)?.experimentFields;
+  const nextWritingTask = sortTasksForToday(writingTasks).find((task) => task.status !== 'done' && task.status !== 'cancelled');
 
   return (
     <section className="page-grid">
       <div className="span-6 panel work-panel">
         <PanelTitle icon={BookOpen} title="论文工作台" />
         <div className="work-meta-grid">
-          <InfoCell label="章节" value={currentPaper?.chapter ?? '未设置'} />
-          <InfoCell label="图表" value={currentPaper?.figure ?? '未设置'} />
-          <InfoCell label="版本" value={currentPaper?.version ?? '未设置'} />
-          <InfoCell label="反馈" value={currentPaper?.feedback ?? '未设置'} alert />
+          <InfoCell label="论文任务" value={`${writingTasks.length} 个`} />
+          <InfoCell label="下一步" value={nextWritingTask?.title ?? '暂无待推进任务'} />
+          <InfoCell label="卡住/延期" value={`${writingTasks.filter((task) => task.status === 'blocked' || task.status === 'delayed').length} 个`} alert={writingTasks.some((task) => task.status === 'blocked' || task.status === 'delayed')} />
+          <InfoCell label="今日必须" value={`${writingTasks.filter((task) => task.priority === 1).length} 个`} />
         </div>
         <TaskList
           categoryList={categoryList}
@@ -2289,7 +2274,7 @@ function SettingsView({
   const [newCategoryColor, setNewCategoryColor] = useState('#3f6f8f');
   const [presetName, setPresetName] = useState('');
   const [newTemplateName, setNewTemplateName] = useState('');
-  const [newTemplateFields, setNewTemplateFields] = useState('做到什么算完成、背景/操作要点、前置条件/等待事项');
+  const [newTemplateFields, setNewTemplateFields] = useState('做到什么算完成、前置条件/等待事项、补充记录');
   const [newProjectDraft, setNewProjectDraft] = useState({
     name: '',
     category: categoryList[0]?.id ?? 'writing',
@@ -2323,7 +2308,7 @@ function SettingsView({
     event.preventDefault();
     onAddTemplate(newTemplateName, parseDelimitedFields(newTemplateFields));
     setNewTemplateName('');
-    setNewTemplateFields('做到什么算完成、背景/操作要点、前置条件/等待事项');
+    setNewTemplateFields('做到什么算完成、前置条件/等待事项、补充记录');
   };
 
   const submitPreset = (event: FormEvent<HTMLFormElement>) => {
@@ -2821,12 +2806,7 @@ function TaskForm({
       ...current,
       projectId,
       category: project?.category ?? current.category,
-      detail: current.detail || project?.next || '',
     }, project?.category ?? current.category));
-  };
-
-  const updatePaperField = <K extends keyof NonNullable<Task['paperFields']>>(key: K, value: NonNullable<Task['paperFields']>[K]) => {
-    setDraft((current) => ({ ...current, paperFields: { ...makePaperFields(current), [key]: value } }));
   };
 
   const updateExperimentField = <K extends keyof NonNullable<Task['experimentFields']>>(key: K, value: NonNullable<Task['experimentFields']>[K]) => {
@@ -2869,7 +2849,6 @@ function TaskForm({
       ...current,
       projectId: project.id,
       category: project.category,
-      detail: current.detail || project.next,
     }));
     setQuickProjectDraft((current) => ({ ...current, name: '', next: '' }));
     setShowQuickProjectForm(false);
@@ -2919,7 +2898,7 @@ function TaskForm({
       actualDuration,
       delayReason,
       notes: draft.notes?.trim() || undefined,
-      detail: draft.detail.trim(),
+      detail: '',
     });
   };
 
@@ -2927,7 +2906,6 @@ function TaskForm({
   const showActualDuration = Boolean(task) && (draft.status === 'done' || draft.actualDuration !== undefined);
   const showDelayReason = draft.status === 'delayed' || draft.status === 'blocked';
   const showLocation = needsLocation(draft.category) || Boolean(draft.location.trim());
-  const showPaperFields = paperCategories.has(draft.category);
   const showExperimentFields = draft.category === 'experiment';
   const showDataFields = dataCategories.has(draft.category);
   const showLifeFields = lifeCategories.has(draft.category);
@@ -3095,26 +3073,6 @@ function TaskForm({
           <span>做到什么算完成？</span>
           <input value={draft.standard} onChange={(event) => updateDraft('standard', event.target.value)} />
         </label>
-        {showPaperFields && (
-          <>
-            <label className="field">
-              <span>章节</span>
-              <input value={draft.paperFields?.chapter ?? ''} onChange={(event) => updatePaperField('chapter', event.target.value)} />
-            </label>
-            <label className="field">
-              <span>图表</span>
-              <input value={draft.paperFields?.figure ?? ''} onChange={(event) => updatePaperField('figure', event.target.value)} />
-            </label>
-            <label className="field">
-              <span>版本</span>
-              <input value={draft.paperFields?.version ?? ''} onChange={(event) => updatePaperField('version', event.target.value)} />
-            </label>
-            <label className="field">
-              <span>共同作者反馈</span>
-              <input value={draft.paperFields?.feedback ?? ''} onChange={(event) => updatePaperField('feedback', event.target.value)} />
-            </label>
-          </>
-        )}
         {showExperimentFields && (
           <>
             <label className="field">
@@ -3181,21 +3139,14 @@ function TaskForm({
             <input value={draft.delayReason ?? ''} onChange={(event) => updateDraft('delayReason', event.target.value)} />
           </label>
         )}
-        <details className="advanced-fields span-2">
-          <summary>高级记录</summary>
-          <label className="field span-2">
-            <span>前置条件/等待事项</span>
-            <input value={draft.dependency} onChange={(event) => updateDraft('dependency', event.target.value)} />
-          </label>
-          <label className="field span-2">
-            <span>补充记录</span>
-            <textarea value={draft.notes ?? ''} onChange={(event) => updateDraft('notes', event.target.value)} />
-          </label>
-          <label className="field span-2">
-            <span>背景/操作要点</span>
-            <textarea value={draft.detail} onChange={(event) => updateDraft('detail', event.target.value)} />
-          </label>
-        </details>
+        <label className="field span-2">
+          <span>前置条件/等待事项</span>
+          <input value={draft.dependency} onChange={(event) => updateDraft('dependency', event.target.value)} />
+        </label>
+        <label className="field span-2">
+          <span>补充记录</span>
+          <textarea value={draft.notes ?? ''} onChange={(event) => updateDraft('notes', event.target.value)} />
+        </label>
 
         {formError && (
           <div className="form-error" role="alert">
@@ -3244,7 +3195,6 @@ function TaskDrawer({
       </button>
       <CategoryPill category={task.category} categoryList={categoryList} />
       <h2>{task.title}</h2>
-      {task.detail && <p>{task.detail}</p>}
       <div className="drawer-actions">
         <button onClick={onClose} type="button">
           关闭
@@ -3295,14 +3245,6 @@ function TaskDrawer({
         {task.dependency && <InfoCell label="前置条件/等待事项" value={task.dependency} />}
         <InfoCell label="完成定义" value={task.standard || '未设置'} />
         {task.delayReason && <InfoCell label={task.status === 'blocked' ? '卡住原因' : '延期原因'} value={task.delayReason} alert />}
-        {task.paperFields && (
-          <>
-            <InfoCell label="章节" value={task.paperFields.chapter || '未设置'} />
-            <InfoCell label="图表" value={task.paperFields.figure || '未设置'} />
-            <InfoCell label="版本" value={task.paperFields.version || '未设置'} />
-            <InfoCell label="共同作者反馈" value={task.paperFields.feedback || '未设置'} alert={Boolean(task.paperFields.feedback)} />
-          </>
-        )}
         {task.experimentFields && (
           <>
             <InfoCell label="样品" value={task.experimentFields.sample || '未设置'} />

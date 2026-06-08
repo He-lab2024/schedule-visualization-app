@@ -34,7 +34,9 @@ describe('App core workflows', () => {
     expect(screen.getByRole('combobox', { name: '所属课题/项目' })).toHaveTextContent('TA 论文');
     expect(screen.queryByLabelText('实际耗时')).not.toBeInTheDocument();
     expect(screen.getByText('已按“论文任务”显示专属字段。')).toBeInTheDocument();
-    expect(screen.getByLabelText('章节')).toBeInTheDocument();
+    expect(screen.queryByLabelText('章节')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('前置条件/等待事项')).toBeInTheDocument();
+    expect(screen.getByLabelText('补充记录')).toBeInTheDocument();
     expect(screen.queryByLabelText('地点')).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByRole('combobox', { name: '任务类型' }), 'experiment');
