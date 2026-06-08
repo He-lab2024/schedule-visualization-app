@@ -165,12 +165,16 @@ const priorityLabel: Record<1 | 2 | 3, string> = {
   3: '可顺延',
 };
 
-const locationCategories = new Set(['experiment', 'life', 'recovery']);
-const dataCategories = new Set(['data']);
-const lifeCategories = new Set(['life', 'recovery']);
+const removedCategoryMap: Record<string, CategoryId> = {
+  data: 'writing',
+  recovery: 'life',
+};
+const removedCategoryIds = new Set(Object.keys(removedCategoryMap));
+const locationCategories = new Set(['experiment', 'life']);
 
 const needsLocation = (category: CategoryId) => locationCategories.has(category);
 const templateForCategory = (category: CategoryId) => (category === 'writing' ? 'writing' : category);
+const normalizeCategoryId = (category: CategoryId) => removedCategoryMap[category] ?? category;
 
 const makeExperimentFields = (task?: Task) =>
   task?.experimentFields ?? {
@@ -181,30 +185,27 @@ const makeExperimentFields = (task?: Task) =>
     reservation: '',
   };
 
-const makeDataFields = (task?: Task) =>
-  task?.dataFields ?? {
-    source: '',
-    notebook: '',
-    output: '',
-    reproducibility: '',
-  };
-
-const makeLifeFields = (task?: Task) =>
-  task?.lifeFields ?? {
-    place: task?.location ?? '',
-    people: '',
-    boundary: '',
-    recoveryLevel: '',
-  };
-
 const normalizeTaskForCategory = (task: Task, category: CategoryId): Task => ({
   ...task,
-  category,
-  location: needsLocation(category) ? task.location : '',
-  experimentFields: category === 'experiment' ? makeExperimentFields(task) : undefined,
-  dataFields: dataCategories.has(category) ? makeDataFields(task) : undefined,
-  lifeFields: lifeCategories.has(category) ? makeLifeFields(task) : undefined,
+  category: normalizeCategoryId(category),
+  location: needsLocation(normalizeCategoryId(category)) ? task.location : '',
+  experimentFields: normalizeCategoryId(category) === 'experiment' ? makeExperimentFields(task) : undefined,
 });
+
+const sanitizeTasks = (tasks: Task[]) =>
+  tasks.map((task) => normalizeTaskForCategory(task, normalizeCategoryId(task.category)));
+
+const sanitizeCategories = (categoryList: Category[]) =>
+  categoryList.filter((category) => !removedCategoryIds.has(category.id));
+
+const sanitizeProjects = (projectList: ProjectLane[]) =>
+  projectList.map((project) => ({
+    ...project,
+    category: normalizeCategoryId(project.category),
+  }));
+
+const sanitizeTemplates = (templateList: FieldTemplate[]) =>
+  templateList.filter((template) => !removedCategoryIds.has(template.id) && template.id !== 'life');
 
 const ensureUnassignedProject = (projectList: ProjectLane[]) =>
   projectList.some((project) => project.id === unassignedProjectId) ? projectList : [...projectList, unassignedProject];
@@ -212,12 +213,12 @@ const ensureUnassignedProject = (projectList: ProjectLane[]) =>
 const defaultPersistedState = (): PersistedState => ({
   schemaVersion,
   version: storageVersion,
-  taskList: initialTasks,
-  categoryList: categories,
-  projectList: ensureUnassignedProject(projects),
+  taskList: sanitizeTasks(initialTasks),
+  categoryList: sanitizeCategories(categories),
+  projectList: ensureUnassignedProject(sanitizeProjects(projects)),
   widgetList: widgets,
   reviewMetricList: reviewMetrics,
-  templateList: fieldTemplates,
+  templateList: sanitizeTemplates(fieldTemplates),
   activePresetId: viewPresets[0].id,
   customPresetList: [],
   displayDensity: 'comfortable',
@@ -273,12 +274,12 @@ const validatePersistedState = (value: unknown): { ok: true; state: PersistedSta
       ...value,
       schemaVersion,
       version: storageVersion,
-      taskList: taskList as Task[],
-      categoryList: categoryList as Category[],
-      projectList: ensureUnassignedProject(projectList as ProjectLane[]),
+      taskList: sanitizeTasks(taskList as Task[]),
+      categoryList: sanitizeCategories(categoryList as Category[]),
+      projectList: ensureUnassignedProject(sanitizeProjects(projectList as ProjectLane[])),
       widgetList: widgetList as Widget[],
       reviewMetricList: reviewMetricList as Widget[],
-      templateList: templateList as FieldTemplate[],
+      templateList: sanitizeTemplates(templateList as FieldTemplate[]),
       activePresetId: typeof value.activePresetId === 'string' ? value.activePresetId : fallback.activePresetId,
       customPresetList: customPresetList as ViewPreset[],
       displayDensity: value.displayDensity === 'compact' ? 'compact' : 'comfortable',
@@ -333,14 +334,6 @@ const matchesSearch = (task: Task, query: string, categoryList: Category[], proj
     task.experimentFields?.condition,
     task.experimentFields?.waiting,
     task.experimentFields?.reservation,
-    task.dataFields?.source,
-    task.dataFields?.notebook,
-    task.dataFields?.output,
-    task.dataFields?.reproducibility,
-    task.lifeFields?.place,
-    task.lifeFields?.people,
-    task.lifeFields?.boundary,
-    task.lifeFields?.recoveryLevel,
   ];
   return [task.title, task.location, task.standard, task.dependency, task.notes, categoryName, projectName, ...typedFields]
     .join(' ')
@@ -595,8 +588,6 @@ function App() {
     notes: project ? `来自项目「${project.name}」的下一步任务。` : '',
     detail: '',
     experimentFields: project?.category === 'experiment' ? makeExperimentFields() : undefined,
-    dataFields: dataCategories.has(project?.category ?? 'writing') ? makeDataFields() : undefined,
-    lifeFields: lifeCategories.has(project?.category ?? 'writing') ? makeLifeFields() : undefined,
   });
 
   const startCreateTask = (project?: ProjectLane) => {
@@ -956,7 +947,7 @@ function App() {
   };
 
   const exportCsv = () => {
-    const header = ['标题', '项目', '任务类型', '日期', '开始', '计划分钟', '实际分钟', '状态', '重要程度', '地点', '完成定义', '前置条件/等待事项', '备注'];
+    const header = ['标题', '项目', '任务类型', '日期', '开始', '计划分钟', '实际分钟', '状态', '重要程度', '地点', '完成标准', '前置条件/等待事项', '备注'];
     const rows = taskList.map((task) => [
       task.title,
       currentProjectMap[task.projectId]?.name ?? task.projectId,
@@ -2274,7 +2265,7 @@ function SettingsView({
   const [newCategoryColor, setNewCategoryColor] = useState('#3f6f8f');
   const [presetName, setPresetName] = useState('');
   const [newTemplateName, setNewTemplateName] = useState('');
-  const [newTemplateFields, setNewTemplateFields] = useState('做到什么算完成、前置条件/等待事项、补充记录');
+  const [newTemplateFields, setNewTemplateFields] = useState('完成标准、前置条件/等待事项、补充记录');
   const [newProjectDraft, setNewProjectDraft] = useState({
     name: '',
     category: categoryList[0]?.id ?? 'writing',
@@ -2308,7 +2299,7 @@ function SettingsView({
     event.preventDefault();
     onAddTemplate(newTemplateName, parseDelimitedFields(newTemplateFields));
     setNewTemplateName('');
-    setNewTemplateFields('做到什么算完成、前置条件/等待事项、补充记录');
+    setNewTemplateFields('完成标准、前置条件/等待事项、补充记录');
   };
 
   const submitPreset = (event: FormEvent<HTMLFormElement>) => {
@@ -2777,7 +2768,7 @@ function TaskForm({
       duration: 60,
       actualDuration: undefined,
       energy: '中',
-      location: '办公室',
+      location: '',
       status: 'planned',
       standard: '',
       dependency: '',
@@ -2811,14 +2802,6 @@ function TaskForm({
 
   const updateExperimentField = <K extends keyof NonNullable<Task['experimentFields']>>(key: K, value: NonNullable<Task['experimentFields']>[K]) => {
     setDraft((current) => ({ ...current, experimentFields: { ...makeExperimentFields(current), [key]: value } }));
-  };
-
-  const updateDataField = <K extends keyof NonNullable<Task['dataFields']>>(key: K, value: NonNullable<Task['dataFields']>[K]) => {
-    setDraft((current) => ({ ...current, dataFields: { ...makeDataFields(current), [key]: value } }));
-  };
-
-  const updateLifeField = <K extends keyof NonNullable<Task['lifeFields']>>(key: K, value: NonNullable<Task['lifeFields']>[K]) => {
-    setDraft((current) => ({ ...current, lifeFields: { ...makeLifeFields(current), [key]: value } }));
   };
 
   const submitQuickProject = () => {
@@ -2907,8 +2890,7 @@ function TaskForm({
   const showDelayReason = draft.status === 'delayed' || draft.status === 'blocked';
   const showLocation = needsLocation(draft.category) || Boolean(draft.location.trim());
   const showExperimentFields = draft.category === 'experiment';
-  const showDataFields = dataCategories.has(draft.category);
-  const showLifeFields = lifeCategories.has(draft.category);
+  const showDependency = draft.category !== 'life';
 
   return (
     <div className="modal-backdrop">
@@ -3029,14 +3011,6 @@ function TaskForm({
             />
           </label>
         )}
-        <label className="field">
-          <span>脑力消耗</span>
-          <select value={draft.energy} onChange={(event) => updateDraft('energy', event.target.value as Task['energy'])}>
-            <option value="低">低</option>
-            <option value="中">中</option>
-            <option value="高">高</option>
-          </select>
-        </label>
         {task && (
           <label className="field">
             <span>状态</span>
@@ -3070,7 +3044,7 @@ function TaskForm({
           </label>
         )}
         <label className="field span-2">
-          <span>做到什么算完成？</span>
+          <span>完成标准</span>
           <input value={draft.standard} onChange={(event) => updateDraft('standard', event.target.value)} />
         </label>
         {showExperimentFields && (
@@ -3097,52 +3071,18 @@ function TaskForm({
             </label>
           </>
         )}
-        {showDataFields && (
-          <>
-            <label className="field">
-              <span>数据来源</span>
-              <input value={draft.dataFields?.source ?? ''} onChange={(event) => updateDataField('source', event.target.value)} />
-            </label>
-            <label className="field">
-              <span>脚本/Notebook</span>
-              <input value={draft.dataFields?.notebook ?? ''} onChange={(event) => updateDataField('notebook', event.target.value)} />
-            </label>
-            <label className="field">
-              <span>输出物</span>
-              <input value={draft.dataFields?.output ?? ''} onChange={(event) => updateDataField('output', event.target.value)} />
-            </label>
-            <label className="field">
-              <span>复现状态</span>
-              <input value={draft.dataFields?.reproducibility ?? ''} onChange={(event) => updateDataField('reproducibility', event.target.value)} />
-            </label>
-          </>
-        )}
-        {showLifeFields && (
-          <>
-            <label className="field">
-              <span>对象/场景</span>
-              <input value={draft.lifeFields?.people ?? ''} onChange={(event) => updateLifeField('people', event.target.value)} />
-            </label>
-            <label className="field">
-              <span>恢复等级</span>
-              <input value={draft.lifeFields?.recoveryLevel ?? ''} onChange={(event) => updateLifeField('recoveryLevel', event.target.value)} />
-            </label>
-            <label className="field span-2">
-              <span>边界说明</span>
-              <input value={draft.lifeFields?.boundary ?? ''} onChange={(event) => updateLifeField('boundary', event.target.value)} />
-            </label>
-          </>
-        )}
         {showDelayReason && (
           <label className="field span-2">
             <span>{draft.status === 'blocked' ? '卡住原因' : '延期原因'}</span>
             <input value={draft.delayReason ?? ''} onChange={(event) => updateDraft('delayReason', event.target.value)} />
           </label>
         )}
-        <label className="field span-2">
-          <span>前置条件/等待事项</span>
-          <input value={draft.dependency} onChange={(event) => updateDraft('dependency', event.target.value)} />
-        </label>
+        {showDependency && (
+          <label className="field span-2">
+            <span>前置条件/等待事项</span>
+            <input value={draft.dependency} onChange={(event) => updateDraft('dependency', event.target.value)} />
+          </label>
+        )}
         <label className="field span-2">
           <span>补充记录</span>
           <textarea value={draft.notes ?? ''} onChange={(event) => updateDraft('notes', event.target.value)} />
@@ -3239,11 +3179,10 @@ function TaskDrawer({
         <InfoCell label="任务状态" value={statusLabel[task.status]} alert={task.status === 'blocked' || task.status === 'delayed'} />
         <InfoCell label="计划时长" value={`${task.duration} 分钟`} />
         <InfoCell label="实际耗时" value={task.actualDuration ? `${task.actualDuration} 分钟` : '完成后记录'} />
-        <InfoCell label="脑力消耗" value={task.energy} />
         {task.location && <InfoCell label="地点" value={task.location} />}
         <InfoCell label="开始时间" value={`${task.date} ${task.start}`} />
         {task.dependency && <InfoCell label="前置条件/等待事项" value={task.dependency} />}
-        <InfoCell label="完成定义" value={task.standard || '未设置'} />
+        <InfoCell label="完成标准" value={task.standard || '未设置'} />
         {task.delayReason && <InfoCell label={task.status === 'blocked' ? '卡住原因' : '延期原因'} value={task.delayReason} alert />}
         {task.experimentFields && (
           <>
@@ -3252,21 +3191,6 @@ function TaskDrawer({
             <InfoCell label="条件" value={task.experimentFields.condition || '未设置'} />
             <InfoCell label="预约状态" value={task.experimentFields.reservation || '未设置'} />
             <InfoCell label="等待事项" value={task.experimentFields.waiting || '未设置'} alert={Boolean(task.experimentFields.waiting)} />
-          </>
-        )}
-        {task.dataFields && (
-          <>
-            <InfoCell label="数据来源" value={task.dataFields.source || '未设置'} />
-            <InfoCell label="脚本/Notebook" value={task.dataFields.notebook || '未设置'} />
-            <InfoCell label="输出物" value={task.dataFields.output || '未设置'} />
-            <InfoCell label="复现状态" value={task.dataFields.reproducibility || '未设置'} />
-          </>
-        )}
-        {task.lifeFields && (
-          <>
-            <InfoCell label="对象/场景" value={task.lifeFields.people || '未设置'} />
-            <InfoCell label="恢复等级" value={task.lifeFields.recoveryLevel || '未设置'} />
-            <InfoCell label="边界说明" value={task.lifeFields.boundary || '未设置'} />
           </>
         )}
         {task.notes && <InfoCell label="补充记录" value={task.notes} />}

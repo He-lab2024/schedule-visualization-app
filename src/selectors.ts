@@ -281,7 +281,7 @@ export const getReviewSuggestions = (tasks: Task[], weekDays: WeekDay[]) => {
     tasks.reduce((total, task) => total + task.duration, 0),
   );
   const lifeMinutes = tasks
-    .filter((task) => task.category === 'life' || task.category === 'recovery')
+    .filter((task) => task.category === 'life')
     .reduce((total, task) => total + task.duration, 0);
 
   const suggestions: Array<{ type: 'writing' | 'experiment' | 'life'; title: string; text: string }> = [];

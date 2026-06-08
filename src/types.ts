@@ -36,18 +36,6 @@ export type Task = {
     waiting: string;
     reservation: string;
   };
-  dataFields?: {
-    source: string;
-    notebook: string;
-    output: string;
-    reproducibility: string;
-  };
-  lifeFields?: {
-    place: string;
-    people: string;
-    boundary: string;
-    recoveryLevel: string;
-  };
 };
 
 export type ProjectLane = {

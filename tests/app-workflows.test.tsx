@@ -33,18 +33,31 @@ describe('App core workflows', () => {
     expect(screen.getByLabelText('日期')).toHaveValue('2026-06-08');
     expect(screen.getByRole('combobox', { name: '所属课题/项目' })).toHaveTextContent('TA 论文');
     expect(screen.queryByLabelText('实际耗时')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('脑力消耗')).not.toBeInTheDocument();
     expect(screen.getByText('已按“论文任务”显示专属字段。')).toBeInTheDocument();
     expect(screen.queryByLabelText('章节')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('完成标准')).toBeInTheDocument();
     expect(screen.getByLabelText('前置条件/等待事项')).toBeInTheDocument();
     expect(screen.getByLabelText('补充记录')).toBeInTheDocument();
     expect(screen.queryByLabelText('地点')).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByRole('combobox', { name: '任务类型' }), 'experiment');
+    const taskTypeSelect = screen.getByRole('combobox', { name: '任务类型' });
+    expect(taskTypeSelect).not.toHaveTextContent('数据');
+    expect(taskTypeSelect).not.toHaveTextContent('恢复');
+
+    await user.selectOptions(taskTypeSelect, 'experiment');
 
     expect(screen.getByLabelText('样品')).toBeInTheDocument();
     expect(screen.getByLabelText('仪器')).toBeInTheDocument();
     expect(screen.getByLabelText('地点')).toBeInTheDocument();
     expect(screen.queryByLabelText('章节')).not.toBeInTheDocument();
+
+    await user.selectOptions(taskTypeSelect, 'life');
+
+    expect(screen.queryByLabelText('对象/场景')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('恢复等级')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('边界说明')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('前置条件/等待事项')).not.toBeInTheDocument();
   });
 
   it('creates a project from the task form and selects it', async () => {

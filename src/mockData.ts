@@ -8,10 +8,8 @@ export const appDate = {
 export const categories: Category[] = [
   { id: 'writing', name: '论文', color: '#5b6ee1', soft: '#e8ebff' },
   { id: 'experiment', name: '实验', color: '#d4554f', soft: '#ffe9e6' },
-  { id: 'data', name: '数据', color: '#2f8b83', soft: '#dff5f1' },
   { id: 'learning', name: '学习', color: '#b7791f', soft: '#fff1d8' },
   { id: 'life', name: '生活', color: '#7a5c98', soft: '#f1e8fb' },
-  { id: 'recovery', name: '恢复', color: '#4f7b62', soft: '#e4f2e8' },
 ];
 
 export const projects: ProjectLane[] = [
@@ -132,7 +130,7 @@ export const tasks: Task[] = [
   {
     id: 't3',
     title: '图 3 数据清洗',
-    category: 'data',
+    category: 'writing',
     projectId: 'p-paper-ta',
     date: '2026-06-08',
     start: '14:00',
@@ -144,12 +142,6 @@ export const tasks: Task[] = [
     standard: '输出可复现脚本和新版图表草稿',
     dependency: '等待复测数据导出',
     detail: '统一重复实验命名，检查空白扣除和归一化逻辑。',
-    dataFields: {
-      source: 'HPLC 复测导出表',
-      notebook: 'fig3-cleaning.ipynb',
-      output: '新版图表草稿和清洗脚本',
-      reproducibility: '脚本可从原始导出表重跑',
-    },
   },
   {
     id: 't4',
@@ -165,12 +157,6 @@ export const tasks: Task[] = [
     standard: '完成厨房整理并留出无屏幕休息',
     dependency: '',
     detail: '生活约束作为正式日程，不挤压到深夜写作。',
-    lifeFields: {
-      place: '家',
-      people: '自己 / 伴侣',
-      boundary: '21:30 后不补写作',
-      recoveryLevel: '低负荷恢复',
-    },
   },
   {
     id: 't5',
@@ -229,7 +215,7 @@ export const tasks: Task[] = [
   {
     id: 't8',
     title: '周复盘和下周排程',
-    category: 'recovery',
+    category: 'life',
     projectId: 'p-life-rhythm',
     date: '2026-06-14',
     start: '16:30',
@@ -240,12 +226,6 @@ export const tasks: Task[] = [
     standard: '确定下周 3 个推进点和 2 个保护时段',
     dependency: '本周任务状态更新',
     detail: '复盘延期原因、脑力负荷和生活时间是否被侵占。',
-    lifeFields: {
-      place: '家',
-      people: '自己',
-      boundary: '下周至少保留 2 个晚间恢复时段',
-      recoveryLevel: '周复盘',
-    },
   },
 ];
 
@@ -269,16 +249,14 @@ export const widgets: Widget[] = [
 ];
 
 export const viewPresets: ViewPreset[] = [
-  { id: 'today-execution', name: '今日执行', widgetIds: ['timeline', 'project-progress', 'deadline-alerts'], focusCategories: ['writing', 'experiment', 'data'] },
-  { id: 'paper-sprint', name: '论文冲刺', widgetIds: ['timeline', 'project-progress', 'energy-load'], focusCategories: ['writing', 'data'] },
-  { id: 'experiment-cycle', name: '实验周期', widgetIds: ['timeline', 'deadline-alerts', 'energy-load'], focusCategories: ['experiment', 'data'] },
-  { id: 'weekly-review', name: '周复盘', widgetIds: ['project-progress', 'energy-load', 'life-rhythm'], focusCategories: ['writing', 'experiment', 'life', 'recovery'] },
-  { id: 'life-balance', name: '生活平衡', widgetIds: ['life-rhythm', 'energy-load', 'timeline'], focusCategories: ['life', 'recovery'] },
+  { id: 'today-execution', name: '今日执行', widgetIds: ['timeline', 'project-progress', 'deadline-alerts'], focusCategories: ['writing', 'experiment'] },
+  { id: 'paper-sprint', name: '论文冲刺', widgetIds: ['timeline', 'project-progress', 'energy-load'], focusCategories: ['writing'] },
+  { id: 'experiment-cycle', name: '实验周期', widgetIds: ['timeline', 'deadline-alerts', 'energy-load'], focusCategories: ['experiment'] },
+  { id: 'weekly-review', name: '周复盘', widgetIds: ['project-progress', 'energy-load', 'life-rhythm'], focusCategories: ['writing', 'experiment', 'life'] },
+  { id: 'life-balance', name: '生活平衡', widgetIds: ['life-rhythm', 'energy-load', 'timeline'], focusCategories: ['life'] },
 ];
 
 export const fieldTemplates: FieldTemplate[] = [
-  { id: 'writing', name: '论文任务', fields: ['做到什么算完成', '前置条件/等待事项', '补充记录'] },
+  { id: 'writing', name: '论文任务', fields: ['完成标准', '前置条件/等待事项', '补充记录'] },
   { id: 'experiment', name: '实验任务', fields: ['样品', '仪器', '条件', '等待结果/等待事项', '预约状态'] },
-  { id: 'data', name: '数据任务', fields: ['数据来源', '脚本/Notebook', '输出物', '复现状态'] },
-  { id: 'life', name: '生活/恢复', fields: ['地点', '对象', '边界说明', '恢复等级'] },
 ];
