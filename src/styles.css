@@ -885,11 +885,6 @@ select:disabled {
   margin-top: 10px;
 }
 
-.mini-task-wrap .quick-date-input {
-  grid-column: 2;
-  min-width: 0;
-}
-
 .mini-task strong {
   overflow: hidden;
   font-size: 12px;

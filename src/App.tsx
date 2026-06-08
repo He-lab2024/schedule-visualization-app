@@ -1203,7 +1203,6 @@ function App() {
           allTasks={filteredTasks}
           categoryList={categoryList}
           selectedTaskIds={selectedTaskIds}
-          onTaskDateChange={updateTaskDate}
           onSelectTask={setSelectedTask}
           onToggleTaskSelection={toggleTaskSelection}
         />
@@ -1696,14 +1695,12 @@ function WeeklyMatrix({
   allTasks,
   categoryList,
   selectedTaskIds,
-  onTaskDateChange,
   onSelectTask,
   onToggleTaskSelection,
 }: {
   allTasks: Task[];
   categoryList: Category[];
   selectedTaskIds: Set<string>;
-  onTaskDateChange: (taskId: string, date: string) => void;
   onSelectTask: (task: Task) => void;
   onToggleTaskSelection: (taskId: string) => void;
 }) {
@@ -1748,13 +1745,6 @@ function WeeklyMatrix({
                             {task.start} · {statusLabel[task.status]}
                           </span>
                         </button>
-                        <input
-                          aria-label={`调整${task.title}日期`}
-                          className="quick-date-input"
-                          onChange={(event) => onTaskDateChange(task.id, event.target.value)}
-                          type="date"
-                          value={task.date}
-                        />
                       </div>
                     ))}
                     {dayTasks.length === 0 && <span className="empty-slot" />}
