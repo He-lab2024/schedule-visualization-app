@@ -130,7 +130,7 @@ export const getWeeklyWorkloadAlerts = (
   return [
     {
       day: '本周',
-      title: '本周负载可控',
+      title: '本周节奏可控',
       text: '任务数量、高脑力分布和卡点堆积都在可处理范围内。',
       tone: 'calm',
     },
@@ -306,7 +306,7 @@ export const getReviewSuggestions = (tasks: Task[], weekDays: WeekDay[]) => {
     suggestions.push({
       type: 'life',
       title: '恢复时间偏少',
-      text: '生活和恢复任务占比偏低，至少锁定两个晚间低负荷保护时段。',
+      text: '生活和恢复任务占比偏低，至少锁定两个晚间保护时段。',
     });
   }
 
@@ -314,7 +314,7 @@ export const getReviewSuggestions = (tasks: Task[], weekDays: WeekDay[]) => {
     suggestions.push({
       type: 'life',
       title: '维持当前节奏',
-      text: '本周负荷分布可控，下周继续保留写作块、实验窗口和恢复时段的边界。',
+      text: '本周安排可控，下周继续保留写作块、实验窗口和恢复时段的边界。',
     });
   }
 

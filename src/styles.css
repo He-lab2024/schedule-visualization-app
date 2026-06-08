@@ -109,32 +109,6 @@ select:disabled {
   box-shadow: inset 3px 0 0 #f5c84b;
 }
 
-.sidebar-panel {
-  margin-top: auto;
-  padding: 16px;
-  border: 1px solid #334255;
-  border-radius: 8px;
-  background: #1d2a39;
-}
-
-.sidebar-panel strong,
-.sidebar-panel span {
-  display: block;
-}
-
-.panel-kicker {
-  color: #9daabc;
-  font-size: 12px;
-}
-
-.sidebar-panel p {
-  margin: 10px 0 0;
-  color: #b9c3d0;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.load-meter,
 .tiny-progress,
 .lane-progress {
   height: 7px;
@@ -143,12 +117,6 @@ select:disabled {
   background: #d9dee7;
 }
 
-.load-meter {
-  margin-top: 12px;
-  background: #314154;
-}
-
-.load-meter span,
 .tiny-progress span,
 .lane-progress span {
   display: block;
@@ -771,40 +739,7 @@ select:disabled {
   font-size: 12px;
 }
 
-.energy-board {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.energy-block {
-  min-height: 114px;
-  padding: 13px;
-  border: 1px solid #e0e5ef;
-  border-radius: 8px;
-  background: #f8fafc;
-}
-
-.energy-block span {
-  display: block;
-  width: 100%;
-  height: 8px;
-  margin-bottom: 18px;
-  border-radius: 999px;
-}
-
-.energy-block strong {
-  display: block;
-  font-size: 28px;
-}
-
-.energy-block small {
-  color: #687182;
-}
-
-.time-block-grid,
-.weekly-load-grid,
-.workload-alert-grid {
+.time-block-grid {
   display: grid;
   gap: 10px;
 }
@@ -858,100 +793,6 @@ select:disabled {
 .time-block small {
   color: #687182;
   font-size: 11px;
-}
-
-.weekly-load-grid {
-  grid-template-columns: repeat(7, minmax(120px, 1fr));
-  overflow-x: auto;
-}
-
-.weekly-load-card {
-  display: grid;
-  gap: 10px;
-  min-height: 150px;
-  padding: 12px;
-  border: 1px solid #e0e5ef;
-  border-radius: 8px;
-  background: #f8fafc;
-}
-
-.weekly-load-card.is-warning {
-  border-color: #f0d39a;
-  background: #fff9eb;
-}
-
-.weekly-load-card strong,
-.weekly-load-card span,
-.weekly-load-card small {
-  display: block;
-}
-
-.weekly-load-card strong {
-  color: #17202c;
-}
-
-.weekly-load-card span,
-.weekly-load-card small {
-  color: #687182;
-  font-size: 12px;
-}
-
-.load-stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.load-stats span {
-  min-height: 24px;
-  padding: 4px 6px;
-  border-radius: 6px;
-  background: #ffffff;
-}
-
-.workload-alert-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.workload-alert {
-  display: flex;
-  gap: 10px;
-  min-height: 88px;
-  padding: 12px;
-  border-radius: 8px;
-  background: #f5f7fb;
-}
-
-.workload-alert-hot {
-  color: #b7433d;
-  background: #fff5f4;
-}
-
-.workload-alert-warn {
-  color: #b7791f;
-  background: #fff9eb;
-}
-
-.workload-alert-calm {
-  color: #2f8b83;
-  background: #eef9f6;
-}
-
-.workload-alert strong,
-.workload-alert span {
-  display: block;
-}
-
-.workload-alert strong {
-  color: currentColor;
-  font-size: 13px;
-}
-
-.workload-alert span {
-  margin-top: 5px;
-  color: #687182;
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 .week-matrix {
@@ -1069,14 +910,6 @@ select:disabled {
   background: #fbfcfe;
 }
 
-.matrix-footer {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 15px;
-}
-
-.load-chip,
 .reason-bar {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1087,7 +920,6 @@ select:disabled {
   font-size: 12px;
 }
 
-.load-chip div,
 .reason-bar div {
   height: 7px;
   overflow: hidden;
@@ -1095,7 +927,6 @@ select:disabled {
   background: #e8ecf2;
 }
 
-.load-chip i,
 .reason-bar i {
   display: block;
   height: 100%;
@@ -2160,8 +1991,7 @@ select:disabled {
   }
 
   .brand-lockup div:last-child,
-  .nav-item span,
-  .sidebar-panel {
+  .nav-item span {
     display: none;
   }
 
@@ -2266,7 +2096,6 @@ select:disabled {
   }
 
   .hero-metrics,
-  .energy-board,
   .time-block-grid,
   .lane-grid,
   .project-settings-grid,
@@ -2279,9 +2108,7 @@ select:disabled {
   .desktop-plan,
   .suggestion-grid,
   .template-grid,
-  .workload-alert-grid,
-  .review-note-grid,
-  .matrix-footer {
+  .review-note-grid {
     grid-template-columns: 1fr;
   }
 

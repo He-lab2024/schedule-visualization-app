@@ -225,7 +225,7 @@ export const tasks: Task[] = [
     status: 'planned',
     standard: '确定下周 3 个推进点和 2 个保护时段',
     dependency: '本周任务状态更新',
-    detail: '复盘延期原因、脑力负荷和生活时间是否被侵占。',
+    detail: '复盘延期原因和生活时间是否被侵占。',
   },
 ];
 
@@ -243,17 +243,16 @@ export const widgets: Widget[] = [
   { id: 'timeline', name: '今日时间轴', visible: true },
   { id: 'project-progress', name: '课题/项目推进', visible: true },
   { id: 'deadline-alerts', name: '检查点提醒', visible: true },
-  { id: 'energy-load', name: '精力负荷', visible: true },
   { id: 'life-rhythm', name: '家庭生活', visible: true },
   { id: 'inbox', name: '收件箱', visible: false },
 ];
 
 export const viewPresets: ViewPreset[] = [
   { id: 'today-execution', name: '今日执行', widgetIds: ['timeline', 'project-progress', 'deadline-alerts'], focusCategories: ['writing', 'experiment'] },
-  { id: 'paper-sprint', name: '论文冲刺', widgetIds: ['timeline', 'project-progress', 'energy-load'], focusCategories: ['writing'] },
-  { id: 'experiment-cycle', name: '实验周期', widgetIds: ['timeline', 'deadline-alerts', 'energy-load'], focusCategories: ['experiment'] },
-  { id: 'weekly-review', name: '周复盘', widgetIds: ['project-progress', 'energy-load', 'life-rhythm'], focusCategories: ['writing', 'experiment', 'life'] },
-  { id: 'life-balance', name: '生活平衡', widgetIds: ['life-rhythm', 'energy-load', 'timeline'], focusCategories: ['life'] },
+  { id: 'paper-sprint', name: '论文冲刺', widgetIds: ['timeline', 'project-progress'], focusCategories: ['writing'] },
+  { id: 'experiment-cycle', name: '实验周期', widgetIds: ['timeline', 'deadline-alerts'], focusCategories: ['experiment'] },
+  { id: 'weekly-review', name: '周复盘', widgetIds: ['project-progress', 'life-rhythm'], focusCategories: ['writing', 'experiment', 'life'] },
+  { id: 'life-balance', name: '生活平衡', widgetIds: ['life-rhythm', 'timeline'], focusCategories: ['life'] },
 ];
 
 export const fieldTemplates: FieldTemplate[] = [

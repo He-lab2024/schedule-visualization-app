@@ -7,7 +7,6 @@ import {
   Beaker,
   Bell,
   BookOpen,
-  Brain,
   CalendarDays,
   CalendarCheck,
   CheckCircle2,
@@ -38,8 +37,6 @@ import type { CSSProperties, ComponentType, FormEvent, ReactNode, RefObject } fr
 import { appDate, categories, fieldTemplates, projects, tasks as initialTasks, viewPresets, weekDays, widgets } from './mockData';
 import {
   getCategoryMap,
-  getEnergySummary,
-  getHighEnergyLoads,
   getProjectRuntimeState,
   getReviewStats,
   getReviewSuggestions,
@@ -47,9 +44,6 @@ import {
   getTasksForDate,
   getTasksForProject,
   getTodayMetrics,
-  getWeeklyWorkloadAlerts,
-  getWeeklyWorkloadDetails,
-  getWeeklyLoads,
   sortTasksForToday,
   statusLabel,
   toMap,
@@ -146,7 +140,6 @@ const taskFilters: Array<{ id: TaskFilter; label: string }> = [
 const reviewMetrics: Widget[] = [
   { id: 'summary', name: '完成与延期', visible: true },
   { id: 'distribution', name: '类型/项目投入', visible: true },
-  { id: 'energy', name: '高脑力负荷', visible: true },
   { id: 'insights', name: '卡点洞察', visible: true },
   { id: 'suggestions', name: '下周建议', visible: true },
 ];
@@ -353,18 +346,13 @@ function AppShell({
   activeView,
   displayDensity,
   setActiveView,
-  taskList,
   children,
 }: {
   activeView: ViewId;
   displayDensity: 'comfortable' | 'compact';
   setActiveView: (view: ViewId) => void;
-  taskList: Task[];
   children: ReactNode;
 }) {
-  const weeklyLoads = getWeeklyLoads(taskList, weekDays);
-  const peakLoad = weeklyLoads.reduce((max, item) => Math.max(max, item.value), 0);
-
   return (
     <div className={`app-shell density-${displayDensity}`}>
       <aside className="sidebar">
@@ -391,14 +379,6 @@ function AppShell({
             );
           })}
         </nav>
-        <div className="sidebar-panel">
-          <span className="panel-kicker">本周状态</span>
-          <strong>{peakLoad >= 70 ? '负荷偏高' : '节奏可控'}</strong>
-          <div className="load-meter">
-            <span style={{ width: `${peakLoad}%` }} />
-          </div>
-          <p>高脑力任务、实验预约和生活恢复共同进入周负荷计算。</p>
-        </div>
       </aside>
       <main className="workspace">{children}</main>
     </div>
@@ -1177,7 +1157,7 @@ function App() {
   };
 
   return (
-    <AppShell activeView={activeView} displayDensity={displayDensity} setActiveView={setActiveView} taskList={taskList}>
+    <AppShell activeView={activeView} displayDensity={displayDensity} setActiveView={setActiveView}>
       <TopBar
         activeView={activeView}
         searchInputRef={searchInputRef}
@@ -1558,7 +1538,6 @@ function TodayDashboard({
   onToggleTaskSelection: (taskId: string) => void;
 }) {
   const todayMetrics = getTodayMetrics(allTasks, appDate.today);
-  const energySummary = getEnergySummary(todayTasks);
   const activeProjects = projectList.filter((project) => !project.archived && getTasksForProject(todayTasks, project.id).length > 0);
   const reminders = allTasks
     .filter((task) => task.status === 'blocked' || task.status === 'delayed' || task.date === appDate.today)
@@ -1688,23 +1667,6 @@ function TodayDashboard({
         </div>
       )}
 
-      {isWidgetVisible('energy-load') && (
-        <div className="span-7 panel">
-          <PanelTitle icon={Brain} title="精力负荷" />
-          <div className="energy-board">
-            {energySummary.map((item) => (
-              <EnergyBlock
-                key={item.label}
-                label={item.label}
-                value={item.value}
-                color={item.label.startsWith('高') ? '#5b6ee1' : item.label.startsWith('中') ? '#d4554f' : '#4f7b62'}
-              />
-            ))}
-            <EnergyBlock label="项目数" value={activeProjects.length} color="#7a5c98" />
-          </div>
-        </div>
-      )}
-
       <div className="span-12 panel">
         <PanelTitle icon={CalendarCheck} title="今日时间块" />
         <div className="time-block-grid">
@@ -1745,30 +1707,8 @@ function WeeklyMatrix({
   onSelectTask: (task: Task) => void;
   onToggleTaskSelection: (taskId: string) => void;
 }) {
-  const weeklyLoads = getWeeklyLoads(allTasks, weekDays);
-  const workloadDetails = getWeeklyWorkloadDetails(allTasks, weekDays);
-  const workloadAlerts = getWeeklyWorkloadAlerts(allTasks, weekDays);
-
   return (
     <section className="page-grid">
-      <div className="span-12 panel">
-        <PanelTitle icon={Gauge} title="每日负载" />
-        <div className="weekly-load-grid">
-          {workloadDetails.map((detail) => (
-            <WeeklyLoadCard key={detail.date} detail={detail} />
-          ))}
-        </div>
-      </div>
-
-      <div className="span-12 panel">
-        <PanelTitle icon={AlertTriangle} title="超载提醒" />
-        <div className="workload-alert-grid">
-          {workloadAlerts.map((alert) => (
-            <WorkloadAlert key={`${alert.day}-${alert.title}`} title={alert.title} text={alert.text} tone={alert.tone} />
-          ))}
-        </div>
-      </div>
-
       <div className="span-12 panel full-panel">
         <PanelTitle icon={CalendarDays} title="日期 × 任务类型" />
         <div className="week-matrix">
@@ -1822,11 +1762,6 @@ function WeeklyMatrix({
                 );
               })}
             </div>
-          ))}
-        </div>
-        <div className="matrix-footer">
-          {weeklyLoads.map((item) => (
-            <LoadChip key={item.label} label={item.label} value={item.value} />
           ))}
         </div>
       </div>
@@ -2011,7 +1946,6 @@ function Review({
   onNextWeekAdjustmentChange: (value: string) => void;
 }) {
   const stats = getReviewStats(allTasks, categoryList, projectList);
-  const highEnergyLoads = getHighEnergyLoads(allTasks, weekDays);
   const suggestions = getReviewSuggestions(allTasks, weekDays);
   const isMetricVisible = (metricId: string) => reviewMetricList.find((metric) => metric.id === metricId)?.visible;
   const suggestionIcons = {
@@ -2085,16 +2019,6 @@ function Review({
             </div>
           </div>
         </>
-      )}
-      {isMetricVisible('energy') && (
-        <div className="span-12 panel">
-          <PanelTitle icon={Brain} title="高脑力任务负荷" />
-          <div className="matrix-footer">
-            {highEnergyLoads.map((item) => (
-              <LoadChip key={item.label} label={item.label} value={Math.min(100, item.value * 34)} />
-            ))}
-          </div>
-        </div>
       )}
       {isMetricVisible('insights') && (
         <>
@@ -3374,75 +3298,6 @@ function Reminder({ title, meta, tone }: { title: string; meta: string; tone: 'h
         <strong>{title}</strong>
         <span>{meta}</span>
       </div>
-    </div>
-  );
-}
-
-function EnergyBlock({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div className="energy-block">
-      <span style={{ background: color }} />
-      <strong>{value}</strong>
-      <small>{label}</small>
-    </div>
-  );
-}
-
-function WeeklyLoadCard({
-  detail,
-}: {
-  detail: {
-    label: string;
-    short: string;
-    taskCount: number;
-    doneCount: number;
-    riskCount: number;
-    highEnergyCount: number;
-    minutes: number;
-    loadPercent: number;
-    warnings: string[];
-  };
-}) {
-  return (
-    <div className={`weekly-load-card ${detail.warnings.length > 0 ? 'is-warning' : ''}`}>
-      <div>
-        <strong>{detail.label}</strong>
-        <span>{detail.short}</span>
-      </div>
-      <div className="tiny-progress">
-        <span style={{ width: `${detail.loadPercent}%` }} />
-      </div>
-      <div className="load-stats">
-        <span>{detail.taskCount} 任务</span>
-        <span>{detail.doneCount} 完成</span>
-        <span>{detail.highEnergyCount} 高能量</span>
-        <span>{detail.riskCount} 卡住/延期</span>
-      </div>
-      <small>{detail.warnings.length ? detail.warnings.join(' / ') : `${Math.round(detail.minutes / 60 * 10) / 10}h 可控`}</small>
-    </div>
-  );
-}
-
-function WorkloadAlert({ title, text, tone }: { title: string; text: string; tone: 'hot' | 'warn' | 'calm' }) {
-  return (
-    <div className={`workload-alert workload-alert-${tone}`}>
-      <AlertTriangle size={17} />
-      <div>
-        <strong>{title}</strong>
-        <span>{text}</span>
-      </div>
-    </div>
-  );
-}
-
-function LoadChip({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="load-chip">
-      <span>{label}</span>
-      <div>
-        <i style={{ width: `${value}%` }} />
-      </div>
-      <strong>{value}%</strong>
     </div>
   );
 }
