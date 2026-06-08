@@ -49,6 +49,19 @@ export const getWeeklyLoads = (tasks: Task[], weekDays: WeekDay[]) =>
     };
   });
 
+export const getHighEnergyLoads = (tasks: Task[], weekDays: WeekDay[]) =>
+  weekDays.map((day) => {
+    const dayTasks = getTasksForDate(tasks, day.date);
+    const highEnergyTasks = dayTasks.filter((task) => task.energy === '高');
+    return {
+      label: day.label,
+      value: highEnergyTasks.length,
+      minutes: highEnergyTasks.reduce((total, task) => total + task.duration, 0),
+      hasExperiment: dayTasks.some((task) => task.category === 'experiment'),
+      hasWriting: dayTasks.some((task) => task.category === 'writing'),
+    };
+  });
+
 export const getProjectRuntimeState = (project: ProjectLane, tasks: Task[]) => {
   const projectTasks = getTasksForProject(tasks, project.id);
   const blockedTasks = projectTasks.filter((task) => task.status === 'blocked' || task.status === 'delayed');
@@ -104,6 +117,54 @@ export const getReviewStats = (tasks: Task[], categories: Category[]) => {
         .reduce((total, task) => total + task.duration, 0) / 60
     ).toFixed(1),
   };
+};
+
+export const getReviewSuggestions = (tasks: Task[], weekDays: WeekDay[]) => {
+  const highEnergyLoads = getHighEnergyLoads(tasks, weekDays);
+  const delayedTasks = tasks.filter((task) => task.status === 'delayed' || task.status === 'blocked');
+  const totalMinutes = Math.max(
+    1,
+    tasks.reduce((total, task) => total + task.duration, 0),
+  );
+  const lifeMinutes = tasks
+    .filter((task) => task.category === 'life' || task.category === 'recovery')
+    .reduce((total, task) => total + task.duration, 0);
+
+  const suggestions: Array<{ type: 'writing' | 'experiment' | 'life'; title: string; text: string }> = [];
+  const overloadedMixedDay = highEnergyLoads.find((day) => day.value >= 2 && day.hasExperiment && day.hasWriting);
+  if (overloadedMixedDay) {
+    suggestions.push({
+      type: 'writing',
+      title: '拆开高脑力和实验日',
+      text: `${overloadedMixedDay.label} 同时叠加写作和实验，下周把重写作块前移或后移半天。`,
+    });
+  }
+
+  if (delayedTasks.some((task) => task.delayReason?.includes('数据') || task.delayReason?.includes('结果'))) {
+    suggestions.push({
+      type: 'experiment',
+      title: '给数据回收留缓冲',
+      text: '延期原因集中在数据或结果回收，下轮实验后预留半天整理窗口。',
+    });
+  }
+
+  if (lifeMinutes / totalMinutes < 0.18) {
+    suggestions.push({
+      type: 'life',
+      title: '恢复时间偏少',
+      text: '生活和恢复任务占比偏低，至少锁定两个晚间低负荷保护时段。',
+    });
+  }
+
+  if (suggestions.length === 0) {
+    suggestions.push({
+      type: 'life',
+      title: '维持当前节奏',
+      text: '本周负荷分布可控，下周继续保留写作块、实验窗口和恢复时段的边界。',
+    });
+  }
+
+  return suggestions.slice(0, 3);
 };
 
 export const statusLabel: Record<TaskStatus, string> = {

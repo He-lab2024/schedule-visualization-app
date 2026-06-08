@@ -27,8 +27,10 @@ import { appDate, categories, fieldTemplates, projects, tasks as initialTasks, v
 import {
   getCategoryMap,
   getEnergySummary,
+  getHighEnergyLoads,
   getProjectRuntimeState,
   getReviewStats,
+  getReviewSuggestions,
   getTasksForDate,
   getTasksForProject,
   getTodayMetrics,
@@ -533,6 +535,13 @@ function Workbench({
 
 function Review({ allTasks, categoryList }: { allTasks: Task[]; categoryList: Category[] }) {
   const stats = getReviewStats(allTasks, categoryList);
+  const highEnergyLoads = getHighEnergyLoads(allTasks, weekDays);
+  const suggestions = getReviewSuggestions(allTasks, weekDays);
+  const suggestionIcons = {
+    writing: PenLine,
+    experiment: Beaker,
+    life: Heart,
+  };
 
   return (
     <section className="page-grid">
@@ -566,11 +575,24 @@ function Review({ allTasks, categoryList }: { allTasks: Task[]; categoryList: Ca
         </div>
       </div>
       <div className="span-12 panel">
+        <PanelTitle icon={Brain} title="高脑力任务负荷" />
+        <div className="matrix-footer">
+          {highEnergyLoads.map((item) => (
+            <LoadChip key={item.label} label={item.label} value={Math.min(100, item.value * 34)} />
+          ))}
+        </div>
+      </div>
+      <div className="span-12 panel">
         <PanelTitle icon={SlidersHorizontal} title="下周建议" />
         <div className="suggestion-grid">
-          <Suggestion icon={PenLine} title="写作块前移" text="把高脑力写作放在周一和周三上午，避免和实验批次相邻。" />
-          <Suggestion icon={Beaker} title="实验窗口锁定" text="HPLC 相关任务集中预约，给复测结果预留半天缓冲。" />
-          <Suggestion icon={Heart} title="生活时段保护" text="周二和周五晚间保留低负荷安排，减少深夜补任务。" />
+          {suggestions.map((suggestion) => (
+            <Suggestion
+              key={suggestion.title}
+              icon={suggestionIcons[suggestion.type]}
+              title={suggestion.title}
+              text={suggestion.text}
+            />
+          ))}
         </div>
       </div>
     </section>
