@@ -988,6 +988,36 @@ button {
   accent-color: #5b6ee1;
 }
 
+.backup-grid {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.backup-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.import-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.import-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.desktop-plan {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .task-drawer {
   position: fixed;
   top: 16px;
@@ -1217,6 +1247,8 @@ button {
   .work-meta-grid,
   .drawer-grid,
   .task-form,
+  .backup-grid,
+  .desktop-plan,
   .suggestion-grid,
   .template-grid,
   .matrix-footer {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   BarChart3,
@@ -10,8 +10,10 @@ import {
   ChevronRight,
   CircleDot,
   Clock3,
+  Download,
   FlaskConical,
   Gauge,
+  HardDrive,
   Heart,
   Kanban,
   LayoutDashboard,
@@ -21,6 +23,7 @@ import {
   Search,
   Settings,
   SlidersHorizontal,
+  Upload,
 } from 'lucide-react';
 import type { CSSProperties, ComponentType, FormEvent, ReactNode } from 'react';
 import { appDate, categories, fieldTemplates, projects, tasks as initialTasks, viewPresets, weekDays, widgets } from './mockData';
@@ -66,6 +69,50 @@ const accentStyle = (categoryList: Category[], categoryId: CategoryId) => {
 };
 
 const makeSoftColor = (hex: string) => `${hex}1a`;
+
+type PersistedState = {
+  version: 1;
+  taskList: Task[];
+  categoryList: Category[];
+  widgetList: Widget[];
+  templateList: FieldTemplate[];
+  activePresetId: string;
+  savedAt: string;
+};
+
+const storageKey = 'research-schedule-dashboard-state-v1';
+
+const defaultPersistedState = (): PersistedState => ({
+  version: 1,
+  taskList: initialTasks,
+  categoryList: categories,
+  widgetList: widgets,
+  templateList: fieldTemplates,
+  activePresetId: viewPresets[0].id,
+  savedAt: new Date().toISOString(),
+});
+
+const loadPersistedState = (): PersistedState => {
+  if (typeof window === 'undefined') return defaultPersistedState();
+  const raw = window.localStorage.getItem(storageKey);
+  if (!raw) return defaultPersistedState();
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<PersistedState>;
+    return {
+      ...defaultPersistedState(),
+      ...parsed,
+      taskList: Array.isArray(parsed.taskList) ? parsed.taskList : initialTasks,
+      categoryList: Array.isArray(parsed.categoryList) ? parsed.categoryList : categories,
+      widgetList: Array.isArray(parsed.widgetList) ? parsed.widgetList : widgets,
+      templateList: Array.isArray(parsed.templateList) ? parsed.templateList : fieldTemplates,
+      activePresetId: parsed.activePresetId ?? viewPresets[0].id,
+      version: 1,
+    };
+  } catch {
+    return defaultPersistedState();
+  }
+};
 
 function AppShell({
   activeView,
@@ -122,17 +169,31 @@ function AppShell({
 }
 
 function App() {
+  const [initialState] = useState<PersistedState>(() => loadPersistedState());
   const [activeView, setActiveView] = useState<ViewId>('today');
-  const [taskList, setTaskList] = useState<Task[]>(initialTasks);
-  const [categoryList, setCategoryList] = useState<Category[]>(categories);
-  const [widgetList, setWidgetList] = useState<Widget[]>(widgets);
-  const [templateList, setTemplateList] = useState<FieldTemplate[]>(fieldTemplates);
-  const [activePresetId, setActivePresetId] = useState<ViewPreset['id']>(viewPresets[0].id);
+  const [taskList, setTaskList] = useState<Task[]>(initialState.taskList);
+  const [categoryList, setCategoryList] = useState<Category[]>(initialState.categoryList);
+  const [widgetList, setWidgetList] = useState<Widget[]>(initialState.widgetList);
+  const [templateList, setTemplateList] = useState<FieldTemplate[]>(initialState.templateList);
+  const [activePresetId, setActivePresetId] = useState<ViewPreset['id']>(initialState.activePresetId);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
 
   const todayTasks = useMemo(() => getTasksForDate(taskList, appDate.today), [taskList]);
+
+  useEffect(() => {
+    const state: PersistedState = {
+      version: 1,
+      taskList,
+      categoryList,
+      widgetList,
+      templateList,
+      activePresetId,
+      savedAt: new Date().toISOString(),
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify(state));
+  }, [activePresetId, categoryList, taskList, templateList, widgetList]);
 
   const upsertTask = (task: Task) => {
     setTaskList((current) => {
@@ -197,6 +258,43 @@ function App() {
     );
   };
 
+  const exportData = () => {
+    const state: PersistedState = {
+      version: 1,
+      taskList,
+      categoryList,
+      widgetList,
+      templateList,
+      activePresetId,
+      savedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `research-schedule-backup-${appDate.today}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importData = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result)) as Partial<PersistedState>;
+        setTaskList(Array.isArray(parsed.taskList) ? parsed.taskList : initialTasks);
+        setCategoryList(Array.isArray(parsed.categoryList) ? parsed.categoryList : categories);
+        setWidgetList(Array.isArray(parsed.widgetList) ? parsed.widgetList : widgets);
+        setTemplateList(Array.isArray(parsed.templateList) ? parsed.templateList : fieldTemplates);
+        setActivePresetId(parsed.activePresetId ?? viewPresets[0].id);
+        setSelectedTask(null);
+      } catch {
+        window.alert('导入失败：JSON 结构无法识别。');
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <AppShell activeView={activeView} setActiveView={setActiveView} taskList={taskList}>
       <TopBar activeView={activeView} onCreateTask={() => setIsCreatingTask(true)} />
@@ -221,6 +319,8 @@ function App() {
           widgetList={widgetList}
           onAddCategory={addCategory}
           onApplyPreset={applyPreset}
+          onExportData={exportData}
+          onImportData={importData}
           onToggleWidget={toggleWidget}
           onUpdateCategoryColor={updateCategoryColor}
           onUpdateTemplateFields={updateTemplateFields}
@@ -606,6 +706,8 @@ function SettingsView({
   widgetList,
   onAddCategory,
   onApplyPreset,
+  onExportData,
+  onImportData,
   onToggleWidget,
   onUpdateCategoryColor,
   onUpdateTemplateFields,
@@ -616,6 +718,8 @@ function SettingsView({
   widgetList: Widget[];
   onAddCategory: (name: string, color: string) => void;
   onApplyPreset: (preset: ViewPreset) => void;
+  onExportData: () => void;
+  onImportData: (file: File) => void;
   onToggleWidget: (widgetId: string) => void;
   onUpdateCategoryColor: (categoryId: string, color: string) => void;
   onUpdateTemplateFields: (templateId: string, fields: string[]) => void;
@@ -700,6 +804,35 @@ function SettingsView({
               <span>{widget.name}</span>
             </label>
           ))}
+        </div>
+      </div>
+      <div className="span-12 panel">
+        <PanelTitle icon={HardDrive} title="本地备份与桌面化" />
+        <div className="backup-grid">
+          <div className="backup-actions">
+            <button className="primary-action" onClick={onExportData} type="button">
+              <Download size={16} />
+              <span>导出 JSON</span>
+            </button>
+            <label className="secondary-action import-button">
+              <Upload size={16} />
+              <span>导入 JSON</span>
+              <input
+                accept="application/json"
+                type="file"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) onImportData(file);
+                  event.currentTarget.value = '';
+                }}
+              />
+            </label>
+          </div>
+          <div className="desktop-plan">
+            <InfoCell label="当前存储" value="localStorage 自动保存，刷新页面不丢数据" />
+            <InfoCell label="备份方式" value="导出/导入同一份 JSON 状态" />
+            <InfoCell label="桌面方案" value="优先 Tauri：体积小、离线友好；Electron 作为兼容备选" />
+          </div>
         </div>
       </div>
     </section>
