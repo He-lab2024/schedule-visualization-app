@@ -188,7 +188,7 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: min(360px, 34vw);
+  width: min(300px, 26vw);
   height: 40px;
   padding: 0 12px;
   border: 1px solid #d8dde6;
@@ -196,6 +196,50 @@ button {
   color: #8a93a3;
   background: #ffffff;
   font-size: 13px;
+}
+
+.search-box input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  color: #1f2733;
+  background: transparent;
+}
+
+.quick-jumps,
+.filter-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 3px;
+  border: 1px solid #d8dde6;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.quick-jumps button,
+.filter-tabs button {
+  min-height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  color: #687182;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.filter-tabs button.is-active {
+  color: #17202c;
+  background: #fff1c2;
+}
+
+.quick-jumps button:hover,
+.filter-tabs button:hover {
+  color: #17202c;
+  background: #f5f7fb;
 }
 
 .icon-button {
@@ -406,6 +450,33 @@ button {
 .timeline {
   display: grid;
   gap: 11px;
+}
+
+.empty-state {
+  display: grid;
+  gap: 6px;
+  min-height: 68px;
+  padding: 13px;
+  border: 1px dashed #d8dde6;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.empty-state strong,
+.empty-state span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.empty-state strong {
+  color: #465264;
+  font-size: 13px;
+}
+
+.empty-state span {
+  color: #8a93a3;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .timeline-item {
@@ -1237,8 +1308,19 @@ button {
     flex-direction: column;
   }
 
+  .top-actions {
+    align-items: stretch;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
   .search-box {
-    width: calc(100vw - 86px);
+    width: 100%;
+  }
+
+  .filter-tabs {
+    max-width: 100%;
+    overflow-x: auto;
   }
 
   .hero-metrics,

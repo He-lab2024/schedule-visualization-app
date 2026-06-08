@@ -80,7 +80,16 @@ type PersistedState = {
   savedAt: string;
 };
 
+type TaskFilter = 'all' | 'active' | 'risk' | 'done';
+
 const storageKey = 'research-schedule-dashboard-state-v1';
+
+const taskFilters: Array<{ id: TaskFilter; label: string }> = [
+  { id: 'all', label: '全部' },
+  { id: 'active', label: '进行中' },
+  { id: 'risk', label: '风险' },
+  { id: 'done', label: '已完成' },
+];
 
 const defaultPersistedState = (): PersistedState => ({
   version: 1,
@@ -112,6 +121,24 @@ const loadPersistedState = (): PersistedState => {
   } catch {
     return defaultPersistedState();
   }
+};
+
+const matchesTaskFilter = (task: Task, filter: TaskFilter) => {
+  if (filter === 'all') return true;
+  if (filter === 'active') return task.status === 'active' || task.status === 'planned';
+  if (filter === 'risk') return task.status === 'blocked' || task.status === 'delayed';
+  return task.status === 'done';
+};
+
+const matchesSearch = (task: Task, query: string, categoryList: Category[]) => {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  const categoryName = getCategory(categoryList, task.category).name;
+  const projectName = projectMap[task.projectId]?.name ?? '';
+  return [task.title, task.location, task.detail, task.standard, task.dependency, categoryName, projectName]
+    .join(' ')
+    .toLowerCase()
+    .includes(normalized);
 };
 
 function AppShell({
@@ -179,8 +206,17 @@ function App() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [taskFilter, setTaskFilter] = useState<TaskFilter>('all');
 
-  const todayTasks = useMemo(() => getTasksForDate(taskList, appDate.today), [taskList]);
+  const filteredTasks = useMemo(
+    () =>
+      taskList.filter(
+        (task) => matchesTaskFilter(task, taskFilter) && matchesSearch(task, searchQuery, categoryList),
+      ),
+    [categoryList, searchQuery, taskFilter, taskList],
+  );
+  const todayTasks = useMemo(() => getTasksForDate(filteredTasks, appDate.today), [filteredTasks]);
 
   useEffect(() => {
     const state: PersistedState = {
@@ -297,20 +333,29 @@ function App() {
 
   return (
     <AppShell activeView={activeView} setActiveView={setActiveView} taskList={taskList}>
-      <TopBar activeView={activeView} onCreateTask={() => setIsCreatingTask(true)} />
+      <TopBar
+        activeView={activeView}
+        searchQuery={searchQuery}
+        taskFilter={taskFilter}
+        onCreateTask={() => setIsCreatingTask(true)}
+        onJumpToday={() => setActiveView('today')}
+        onJumpWeek={() => setActiveView('week')}
+        onSearchChange={setSearchQuery}
+        onTaskFilterChange={setTaskFilter}
+      />
       {activeView === 'today' && (
         <TodayDashboard
-          allTasks={taskList}
+          allTasks={filteredTasks}
           categoryList={categoryList}
           todayTasks={todayTasks}
           widgetList={widgetList}
           onSelectTask={setSelectedTask}
         />
       )}
-      {activeView === 'week' && <WeeklyMatrix allTasks={taskList} categoryList={categoryList} onSelectTask={setSelectedTask} />}
-      {activeView === 'projects' && <ProjectProgress allTasks={taskList} categoryList={categoryList} />}
-      {activeView === 'workbench' && <Workbench allTasks={taskList} categoryList={categoryList} onSelectTask={setSelectedTask} />}
-      {activeView === 'review' && <Review allTasks={taskList} categoryList={categoryList} />}
+      {activeView === 'week' && <WeeklyMatrix allTasks={filteredTasks} categoryList={categoryList} onSelectTask={setSelectedTask} />}
+      {activeView === 'projects' && <ProjectProgress allTasks={filteredTasks} categoryList={categoryList} />}
+      {activeView === 'workbench' && <Workbench allTasks={filteredTasks} categoryList={categoryList} onSelectTask={setSelectedTask} />}
+      {activeView === 'review' && <Review allTasks={filteredTasks} categoryList={categoryList} />}
       {activeView === 'settings' && (
         <SettingsView
           activePresetId={activePresetId}
@@ -348,7 +393,25 @@ function App() {
   );
 }
 
-function TopBar({ activeView, onCreateTask }: { activeView: ViewId; onCreateTask: () => void }) {
+function TopBar({
+  activeView,
+  searchQuery,
+  taskFilter,
+  onCreateTask,
+  onJumpToday,
+  onJumpWeek,
+  onSearchChange,
+  onTaskFilterChange,
+}: {
+  activeView: ViewId;
+  searchQuery: string;
+  taskFilter: TaskFilter;
+  onCreateTask: () => void;
+  onJumpToday: () => void;
+  onJumpWeek: () => void;
+  onSearchChange: (query: string) => void;
+  onTaskFilterChange: (filter: TaskFilter) => void;
+}) {
   const current = navItems.find((item) => item.id === activeView);
   return (
     <header className="topbar">
@@ -361,7 +424,32 @@ function TopBar({ activeView, onCreateTask }: { activeView: ViewId; onCreateTask
       <div className="top-actions">
         <div className="search-box">
           <Search size={16} />
-          <span>论文、实验、项目、地点</span>
+          <input
+            aria-label="搜索任务"
+            placeholder="论文、实验、项目、地点"
+            value={searchQuery}
+            onChange={(event) => onSearchChange(event.target.value)}
+          />
+        </div>
+        <div className="quick-jumps">
+          <button onClick={onJumpToday} type="button">
+            今日
+          </button>
+          <button onClick={onJumpWeek} type="button">
+            本周
+          </button>
+        </div>
+        <div className="filter-tabs">
+          {taskFilters.map((filter) => (
+            <button
+              className={taskFilter === filter.id ? 'is-active' : ''}
+              key={filter.id}
+              onClick={() => onTaskFilterChange(filter.id)}
+              type="button"
+            >
+              {filter.label}
+            </button>
+          ))}
         </div>
         <button className="primary-action" onClick={onCreateTask} type="button">
           <Plus size={16} />
@@ -394,6 +482,10 @@ function TodayDashboard({
   const reminders = allTasks
     .filter((task) => task.status === 'blocked' || task.status === 'delayed' || task.date === appDate.today)
     .slice(0, 3);
+  const priorityTasks = todayTasks
+    .filter((task) => task.priority)
+    .sort((a, b) => (a.priority ?? 9) - (b.priority ?? 9))
+    .slice(0, 3);
   const isWidgetVisible = (widgetId: string) => widgetList.find((widget) => widget.id === widgetId)?.visible;
 
   return (
@@ -414,17 +506,17 @@ function TodayDashboard({
       <div className="span-4 panel">
         <PanelTitle icon={ListChecks} title="今日三件事" />
         <div className="priority-list">
-          {todayTasks
-            .filter((task) => task.priority)
-            .sort((a, b) => (a.priority ?? 9) - (b.priority ?? 9))
-            .slice(0, 3)
-            .map((task, index) => (
+          {priorityTasks.length === 0 ? (
+            <EmptyState title="没有匹配的今日重点" text="调整搜索或状态筛选后，这里会重新显示优先级最高的任务。" />
+          ) : (
+            priorityTasks.map((task, index) => (
               <button className="priority-item" key={task.id} onClick={() => onSelectTask(task)} type="button">
                 <span>{index + 1}</span>
                 <strong>{task.title}</strong>
                 <ChevronRight size={16} />
               </button>
-            ))}
+            ))
+          )}
         </div>
       </div>
 
@@ -432,24 +524,28 @@ function TodayDashboard({
         <div className="span-7 panel">
           <PanelTitle icon={Clock3} title="今日时间轴" />
           <div className="timeline">
-            {todayTasks.map((task) => (
-              <button
-                className={`timeline-item status-${task.status}`}
-                key={task.id}
-                onClick={() => onSelectTask(task)}
-                style={accentStyle(categoryList, task.category)}
-                type="button"
-              >
-                <span className="time">{task.start}</span>
-                <div>
-                  <strong>{task.title}</strong>
-                  <small>
-                    {task.duration} 分钟 · {projectMap[task.projectId].name} · {statusLabel[task.status]}
-                  </small>
-                </div>
-                <CategoryPill category={task.category} categoryList={categoryList} />
-              </button>
-            ))}
+            {todayTasks.length === 0 ? (
+              <EmptyState title="今日没有匹配任务" text="搜索和状态筛选会同步作用到今日时间轴。" />
+            ) : (
+              todayTasks.map((task) => (
+                <button
+                  className={`timeline-item status-${task.status}`}
+                  key={task.id}
+                  onClick={() => onSelectTask(task)}
+                  style={accentStyle(categoryList, task.category)}
+                  type="button"
+                >
+                  <span className="time">{task.start}</span>
+                  <div>
+                    <strong>{task.title}</strong>
+                    <small>
+                      {task.duration} 分钟 · {projectMap[task.projectId].name} · {statusLabel[task.status]}
+                    </small>
+                  </div>
+                  <CategoryPill category={task.category} categoryList={categoryList} />
+                </button>
+              ))
+            )}
           </div>
         </div>
       )}
@@ -458,9 +554,13 @@ function TodayDashboard({
         <div className="span-5 panel">
           <PanelTitle icon={Gauge} title="项目状态" />
           <div className="project-stack">
-            {activeProjects.map((project) => (
-              <ProjectCard key={project.id} categoryList={categoryList} project={project} taskList={allTasks} />
-            ))}
+            {activeProjects.length === 0 ? (
+              <EmptyState title="没有匹配项目" text="当前筛选下，今日没有项目任务需要推进。" />
+            ) : (
+              activeProjects.map((project) => (
+                <ProjectCard key={project.id} categoryList={categoryList} project={project} taskList={allTasks} />
+              ))
+            )}
           </div>
         </div>
       )}
@@ -469,14 +569,18 @@ function TodayDashboard({
         <div className="span-5 panel">
           <PanelTitle icon={AlertTriangle} title="近期提醒" />
           <div className="reminder-list">
-            {reminders.map((task) => (
-              <Reminder
-                key={task.id}
-                title={task.title}
-                meta={`${task.date} ${task.start} · ${projectMap[task.projectId].name}`}
-                tone={task.status === 'blocked' ? 'hot' : task.status === 'delayed' ? 'warn' : 'calm'}
-              />
-            ))}
+            {reminders.length === 0 ? (
+              <EmptyState title="没有匹配提醒" text="风险、延期和今日任务会在这里优先出现。" />
+            ) : (
+              reminders.map((task) => (
+                <Reminder
+                  key={task.id}
+                  title={task.title}
+                  meta={`${task.date} ${task.start} · ${projectMap[task.projectId].name}`}
+                  tone={task.status === 'blocked' ? 'hot' : task.status === 'delayed' ? 'warn' : 'calm'}
+                />
+              ))
+            )}
           </div>
         </div>
       )}
@@ -564,10 +668,15 @@ function WeeklyMatrix({
 }
 
 function ProjectProgress({ allTasks, categoryList }: { allTasks: Task[]; categoryList: Category[] }) {
+  const visibleProjects = projects.filter((project) => getTasksForProject(allTasks, project.id).length > 0);
+
   return (
     <section className="page-grid">
       <div className="span-12 lane-board">
-        {projects.map((project) => {
+        {visibleProjects.length === 0 && (
+          <EmptyState title="没有匹配的项目任务" text="项目页会跟随顶部搜索和状态筛选，只展示命中的项目线。" />
+        )}
+        {visibleProjects.map((project) => {
           const runtime = getProjectRuntimeState(project, allTasks);
           return (
             <div className="project-lane" key={project.id} style={accentStyle(categoryList, project.category)}>
@@ -645,6 +754,11 @@ function Review({ allTasks, categoryList }: { allTasks: Task[]; categoryList: Ca
 
   return (
     <section className="page-grid">
+      {allTasks.length === 0 && (
+        <div className="span-12 panel">
+          <EmptyState title="没有可复盘的匹配任务" text="当前复盘指标基于顶部搜索和状态筛选计算。" />
+        </div>
+      )}
       <div className="span-4 panel stat-panel">
         <Metric value={`${stats.completionRate}%`} label="完成率" />
         <div className="donut" style={{ '--value': `${stats.completionRate}%` } as CSSProperties}>
@@ -1062,6 +1176,15 @@ function Metric({ value, label, tone }: { value: string; label: string; tone?: '
   );
 }
 
+function EmptyState({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="empty-state">
+      <strong>{title}</strong>
+      <span>{text}</span>
+    </div>
+  );
+}
+
 function CategoryPill({ category, categoryList }: { category: CategoryId; categoryList: Category[] }) {
   const item = getCategory(categoryList, category);
   return (
@@ -1140,15 +1263,19 @@ function TaskList({
 }) {
   return (
     <div className="compact-task-list">
-      {taskList.map((task) => (
-        <button key={task.id} onClick={() => onSelectTask(task)} style={accentStyle(categoryList, task.category)} type="button">
-          <span className={`status-dot status-${task.status}`} />
-          <strong>{task.title}</strong>
-          <small>
-            {task.date} · {statusLabel[task.status]}
-          </small>
-        </button>
-      ))}
+      {taskList.length === 0 ? (
+        <EmptyState title="没有匹配任务" text="这里的任务列表会跟随顶部搜索和状态筛选更新。" />
+      ) : (
+        taskList.map((task) => (
+          <button key={task.id} onClick={() => onSelectTask(task)} style={accentStyle(categoryList, task.category)} type="button">
+            <span className={`status-dot status-${task.status}`} />
+            <strong>{task.title}</strong>
+            <small>
+              {task.date} · {statusLabel[task.status]}
+            </small>
+          </button>
+        ))
+      )}
     </div>
   );
 }
