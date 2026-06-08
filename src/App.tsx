@@ -87,6 +87,9 @@ type PersistedState = {
   widgetList: Widget[];
   templateList: FieldTemplate[];
   activePresetId: string;
+  dailyReviewNote: string;
+  weeklyConclusion: string;
+  nextWeekAdjustment: string;
   savedAt: string;
 };
 
@@ -125,6 +128,9 @@ const defaultPersistedState = (): PersistedState => ({
   widgetList: widgets,
   templateList: fieldTemplates,
   activePresetId: viewPresets[0].id,
+  dailyReviewNote: '',
+  weeklyConclusion: '',
+  nextWeekAdjustment: '',
   savedAt: new Date().toISOString(),
 });
 
@@ -143,6 +149,9 @@ const loadPersistedState = (): PersistedState => {
       widgetList: Array.isArray(parsed.widgetList) ? parsed.widgetList : widgets,
       templateList: Array.isArray(parsed.templateList) ? parsed.templateList : fieldTemplates,
       activePresetId: parsed.activePresetId ?? viewPresets[0].id,
+      dailyReviewNote: parsed.dailyReviewNote ?? '',
+      weeklyConclusion: parsed.weeklyConclusion ?? '',
+      nextWeekAdjustment: parsed.nextWeekAdjustment ?? '',
       version: 1,
     };
   } catch {
@@ -230,6 +239,9 @@ function App() {
   const [widgetList, setWidgetList] = useState<Widget[]>(initialState.widgetList);
   const [templateList, setTemplateList] = useState<FieldTemplate[]>(initialState.templateList);
   const [activePresetId, setActivePresetId] = useState<ViewPreset['id']>(initialState.activePresetId);
+  const [dailyReviewNote, setDailyReviewNote] = useState(initialState.dailyReviewNote);
+  const [weeklyConclusion, setWeeklyConclusion] = useState(initialState.weeklyConclusion);
+  const [nextWeekAdjustment, setNextWeekAdjustment] = useState(initialState.nextWeekAdjustment);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedProject, setSelectedProject] = useState<ProjectLane | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -264,10 +276,13 @@ function App() {
       widgetList,
       templateList,
       activePresetId,
+      dailyReviewNote,
+      weeklyConclusion,
+      nextWeekAdjustment,
       savedAt: new Date().toISOString(),
     };
     window.localStorage.setItem(storageKey, JSON.stringify(state));
-  }, [activePresetId, categoryList, taskList, templateList, widgetList]);
+  }, [activePresetId, categoryList, dailyReviewNote, nextWeekAdjustment, taskList, templateList, weeklyConclusion, widgetList]);
 
   const upsertTask = (task: Task) => {
     setTaskList((current) => {
@@ -449,6 +464,9 @@ function App() {
       widgetList,
       templateList,
       activePresetId,
+      dailyReviewNote,
+      weeklyConclusion,
+      nextWeekAdjustment,
       savedAt: new Date().toISOString(),
     };
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
@@ -470,6 +488,9 @@ function App() {
         setWidgetList(Array.isArray(parsed.widgetList) ? parsed.widgetList : widgets);
         setTemplateList(Array.isArray(parsed.templateList) ? parsed.templateList : fieldTemplates);
         setActivePresetId(parsed.activePresetId ?? viewPresets[0].id);
+        setDailyReviewNote(parsed.dailyReviewNote ?? '');
+        setWeeklyConclusion(parsed.weeklyConclusion ?? '');
+        setNextWeekAdjustment(parsed.nextWeekAdjustment ?? '');
         setSelectedTask(null);
       } catch {
         window.alert('导入失败：JSON 结构无法识别。');
@@ -543,7 +564,18 @@ function App() {
           onToggleTaskSelection={toggleTaskSelection}
         />
       )}
-      {activeView === 'review' && <Review allTasks={filteredTasks} categoryList={categoryList} />}
+      {activeView === 'review' && (
+        <Review
+          allTasks={filteredTasks}
+          categoryList={categoryList}
+          dailyReviewNote={dailyReviewNote}
+          nextWeekAdjustment={nextWeekAdjustment}
+          weeklyConclusion={weeklyConclusion}
+          onDailyReviewNoteChange={setDailyReviewNote}
+          onNextWeekAdjustmentChange={setNextWeekAdjustment}
+          onWeeklyConclusionChange={setWeeklyConclusion}
+        />
+      )}
       {activeView === 'settings' && (
         <SettingsView
           activePresetId={activePresetId}
@@ -1154,8 +1186,26 @@ function Workbench({
   );
 }
 
-function Review({ allTasks, categoryList }: { allTasks: Task[]; categoryList: Category[] }) {
-  const stats = getReviewStats(allTasks, categoryList);
+function Review({
+  allTasks,
+  categoryList,
+  dailyReviewNote,
+  weeklyConclusion,
+  nextWeekAdjustment,
+  onDailyReviewNoteChange,
+  onWeeklyConclusionChange,
+  onNextWeekAdjustmentChange,
+}: {
+  allTasks: Task[];
+  categoryList: Category[];
+  dailyReviewNote: string;
+  weeklyConclusion: string;
+  nextWeekAdjustment: string;
+  onDailyReviewNoteChange: (value: string) => void;
+  onWeeklyConclusionChange: (value: string) => void;
+  onNextWeekAdjustmentChange: (value: string) => void;
+}) {
+  const stats = getReviewStats(allTasks, categoryList, projects);
   const highEnergyLoads = getHighEnergyLoads(allTasks, weekDays);
   const suggestions = getReviewSuggestions(allTasks, weekDays);
   const suggestionIcons = {
@@ -1171,6 +1221,9 @@ function Review({ allTasks, categoryList }: { allTasks: Task[]; categoryList: Ca
           <EmptyState title="没有可复盘的匹配任务" text="当前复盘指标基于顶部搜索和状态筛选计算。" />
         </div>
       )}
+      <div className="span-12 review-context">
+        当前复盘基于顶部搜索和状态筛选后的任务数据。
+      </div>
       <div className="span-4 panel stat-panel">
         <Metric value={`${stats.completionRate}%`} label="完成率" />
         <div className="donut" style={{ '--value': `${stats.completionRate}%` } as CSSProperties}>
@@ -1186,17 +1239,36 @@ function Review({ allTasks, categoryList }: { allTasks: Task[]; categoryList: Ca
         </div>
       </div>
       <div className="span-4 panel stat-panel">
-        <Metric value={`${stats.writingHours}h`} label="论文投入" />
-        <div className="distribution">
+        <Metric value={`${stats.blocked}`} label="阻塞任务" tone={stats.blocked > 0 ? 'warn' : undefined} />
+        <Metric value={`${stats.totalHours}h`} label="总投入" />
+      </div>
+      <div className="span-6 panel">
+        <PanelTitle icon={CalendarCheck} title="每日复盘" />
+        <div className="review-summary">
+          <strong>{stats.dailySummary}</strong>
+          <span>完成 {stats.completed} 个，延期/阻塞 {stats.delayed} 个，高能量任务 {stats.energyDistribution.find((item) => item.label.startsWith('高'))?.value ?? 0} 个。</span>
+        </div>
+      </div>
+      <div className="span-6 panel">
+        <PanelTitle icon={CalendarDays} title="每周复盘" />
+        <div className="review-summary">
+          <strong>{stats.weeklySummary}</strong>
+          <span>论文投入 {stats.writingHours}h，当前筛选任务共 {stats.taskCount} 个。</span>
+        </div>
+      </div>
+      <div className="span-6 panel">
+        <PanelTitle icon={Tags} title="分类投入" />
+        <div className="review-bars">
           {stats.categoryDistribution.map((item) => (
-            <span
-              key={item.category.id}
-              title={`${item.category.name} ${item.minutes} 分钟`}
-              style={{
-                background: item.category.color,
-                width: `${item.percent}%`,
-              }}
-            />
+            <ReviewBar key={item.category.id} label={item.category.name} value={item.percent} meta={`${Math.round(item.minutes / 60 * 10) / 10}h`} />
+          ))}
+        </div>
+      </div>
+      <div className="span-6 panel">
+        <PanelTitle icon={Kanban} title="项目投入" />
+        <div className="review-bars">
+          {stats.projectDistribution.map((item) => (
+            <ReviewBar key={item.project.id} label={item.project.name} value={item.percent} meta={`${Math.round(item.minutes / 60 * 10) / 10}h`} />
           ))}
         </div>
       </div>
@@ -1205,6 +1277,22 @@ function Review({ allTasks, categoryList }: { allTasks: Task[]; categoryList: Ca
         <div className="matrix-footer">
           {highEnergyLoads.map((item) => (
             <LoadChip key={item.label} label={item.label} value={Math.min(100, item.value * 34)} />
+          ))}
+        </div>
+      </div>
+      <div className="span-6 panel">
+        <PanelTitle icon={AlertTriangle} title="最常延期的任务类型" />
+        <div className="insight-list">
+          {(stats.delayedByCategory.length ? stats.delayedByCategory : [{ label: '暂无延期类型', value: 0 }]).map((item) => (
+            <InsightItem key={item.label} label={item.label} value={`${item.value} 个`} />
+          ))}
+        </div>
+      </div>
+      <div className="span-6 panel">
+        <PanelTitle icon={Kanban} title="最容易阻塞的项目" />
+        <div className="insight-list">
+          {(stats.blockedByProject.length ? stats.blockedByProject : [{ label: '暂无阻塞项目', value: 0 }]).map((item) => (
+            <InsightItem key={item.label} label={item.label} value={`${item.value} 个`} />
           ))}
         </div>
       </div>
@@ -1219,6 +1307,23 @@ function Review({ allTasks, categoryList }: { allTasks: Task[]; categoryList: Ca
               text={suggestion.text}
             />
           ))}
+        </div>
+      </div>
+      <div className="span-12 panel">
+        <PanelTitle icon={PenLine} title="手写复盘" />
+        <div className="review-note-grid">
+          <label className="review-note">
+            <span>每日复盘笔记</span>
+            <textarea value={dailyReviewNote} onChange={(event) => onDailyReviewNoteChange(event.target.value)} />
+          </label>
+          <label className="review-note">
+            <span>本周结论</span>
+            <textarea value={weeklyConclusion} onChange={(event) => onWeeklyConclusionChange(event.target.value)} />
+          </label>
+          <label className="review-note">
+            <span>下周调整</span>
+            <textarea value={nextWeekAdjustment} onChange={(event) => onNextWeekAdjustmentChange(event.target.value)} />
+          </label>
         </div>
       </div>
     </section>
@@ -1955,6 +2060,30 @@ function ReasonBar({ label, value }: { label: string; value: number }) {
         <i style={{ width: `${value}%` }} />
       </div>
       <strong>{value}%</strong>
+    </div>
+  );
+}
+
+function ReviewBar({ label, value, meta }: { label: string; value: number; meta: string }) {
+  return (
+    <div className="review-bar">
+      <div>
+        <strong>{label}</strong>
+        <span>{meta}</span>
+      </div>
+      <div>
+        <i style={{ width: `${value}%` }} />
+      </div>
+      <small>{value}%</small>
+    </div>
+  );
+}
+
+function InsightItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="insight-item">
+      <strong>{label}</strong>
+      <span>{value}</span>
     </div>
   );
 }

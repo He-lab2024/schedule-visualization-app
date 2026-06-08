@@ -1178,6 +1178,33 @@ select:disabled {
   min-height: 220px;
 }
 
+.review-context {
+  color: #8a93a3;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.review-summary {
+  display: grid;
+  gap: 8px;
+  min-height: 112px;
+  padding: 14px;
+  border: 1px solid #e0e5ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.review-summary strong {
+  color: #263446;
+  line-height: 1.5;
+}
+
+.review-summary span {
+  color: #687182;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .donut {
   display: grid;
   place-items: center;
@@ -1212,6 +1239,74 @@ select:disabled {
   border-radius: 8px;
 }
 
+.review-bars,
+.insight-list {
+  display: grid;
+  gap: 10px;
+}
+
+.review-bar {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+}
+
+.review-bar strong,
+.review-bar span {
+  display: block;
+}
+
+.review-bar strong {
+  overflow: hidden;
+  color: #263446;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-bar span,
+.review-bar small {
+  color: #8a93a3;
+  font-size: 12px;
+}
+
+.review-bar div:nth-child(2) {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e8ecf2;
+}
+
+.review-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #5b6ee1;
+}
+
+.insight-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.insight-item strong {
+  color: #263446;
+  font-size: 13px;
+}
+
+.insight-item span {
+  color: #b7433d;
+  font-size: 13px;
+  font-weight: 900;
+}
+
 .suggestion-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1243,6 +1338,36 @@ select:disabled {
   margin-top: 7px;
   color: #687182;
   font-size: 13px;
+  line-height: 1.55;
+}
+
+.review-note-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.review-note {
+  display: grid;
+  gap: 8px;
+}
+
+.review-note span {
+  color: #687182;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.review-note textarea {
+  width: 100%;
+  min-height: 126px;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid #d8dde6;
+  border-radius: 8px;
+  color: #1f2733;
+  background: #ffffff;
+  font: inherit;
   line-height: 1.55;
 }
 
@@ -1778,7 +1903,12 @@ select:disabled {
   .suggestion-grid,
   .template-grid,
   .workload-alert-grid,
+  .review-note-grid,
   .matrix-footer {
+    grid-template-columns: 1fr;
+  }
+
+  .review-bar {
     grid-template-columns: 1fr;
   }
 

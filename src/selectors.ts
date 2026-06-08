@@ -178,11 +178,13 @@ export const getProjectRuntimeState = (project: ProjectLane, tasks: Task[]) => {
   };
 };
 
-export const getReviewStats = (tasks: Task[], categories: Category[]) => {
+export const getReviewStats = (tasks: Task[], categories: Category[], projects: ProjectLane[]) => {
   const completed = tasks.filter((task) => task.status === 'done').length;
   const delayed = tasks.filter((task) => task.status === 'delayed' || task.status === 'blocked').length;
+  const blocked = tasks.filter((task) => task.status === 'blocked').length;
   const completionRate = Math.round((completed / Math.max(tasks.length, 1)) * 100);
   const delayRate = Math.round((delayed / Math.max(tasks.length, 1)) * 100);
+  const totalMinutes = tasks.reduce((total, task) => total + task.duration, 0);
 
   const delayedTasks = tasks.filter((task) => task.delayReason);
   const reasonCounts = delayedTasks.reduce<Record<string, number>>((acc, task) => {
@@ -201,24 +203,72 @@ export const getReviewStats = (tasks: Task[], categories: Category[]) => {
       .filter((task) => task.category === category.id)
       .reduce((total, task) => total + task.duration, 0),
   }));
-  const totalMinutes = Math.max(
+  const safeTotalMinutes = Math.max(
     1,
     categoryMinutes.reduce((total, item) => total + item.minutes, 0),
   );
+  const projectMinutes = projects.map((project) => ({
+    project,
+    minutes: tasks
+      .filter((task) => task.projectId === project.id)
+      .reduce((total, task) => total + task.duration, 0),
+  }));
+  const energyDistribution = getEnergySummary(tasks).map((item) => ({
+    ...item,
+    minutes: tasks
+      .filter((task) => item.label.startsWith(task.energy))
+      .reduce((total, task) => total + task.duration, 0),
+  }));
+  const delayedByCategory = categories
+    .map((category) => ({
+      label: category.name,
+      value: tasks.filter(
+        (task) => task.category === category.id && (task.status === 'delayed' || task.status === 'blocked'),
+      ).length,
+    }))
+    .filter((item) => item.value > 0)
+    .sort((a, b) => b.value - a.value);
+  const blockedByProject = projects
+    .map((project) => ({
+      label: project.name,
+      value: tasks.filter((task) => task.projectId === project.id && task.status === 'blocked').length,
+    }))
+    .filter((item) => item.value > 0)
+    .sort((a, b) => b.value - a.value);
 
   return {
+    taskCount: tasks.length,
+    completed,
+    delayed,
+    blocked,
     completionRate,
     delayRate,
     reasons,
     categoryDistribution: categoryMinutes.map((item) => ({
       ...item,
-      percent: Math.max(6, Math.round((item.minutes / totalMinutes) * 100)),
+      percent: Math.max(6, Math.round((item.minutes / safeTotalMinutes) * 100)),
     })),
+    projectDistribution: projectMinutes.map((item) => ({
+      ...item,
+      percent: Math.max(6, Math.round((item.minutes / Math.max(1, totalMinutes)) * 100)),
+    })),
+    energyDistribution,
+    delayedByCategory,
+    blockedByProject,
+    totalHours: (totalMinutes / 60).toFixed(1),
     writingHours: (
       tasks
         .filter((task) => task.category === 'writing')
         .reduce((total, task) => total + task.duration, 0) / 60
     ).toFixed(1),
+    dailySummary:
+      tasks.length === 0
+        ? '当前筛选下暂无任务。'
+        : `今日/本周视图内共有 ${tasks.length} 个任务，完成 ${completed} 个，风险 ${delayed} 个。`,
+    weeklySummary:
+      delayed > 0
+        ? `本周主要需要处理 ${delayed} 个延期或阻塞任务，优先消化风险来源。`
+        : '本周没有明显延期或阻塞堆积，可以维持当前节奏。',
   };
 };
 
