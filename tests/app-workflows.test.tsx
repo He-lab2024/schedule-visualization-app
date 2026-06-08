@@ -23,17 +23,19 @@ describe('App core workflows', () => {
     expect(screen.getByLabelText('搜索任务')).toHaveFocus();
   });
 
-  it('opens the task form with smart date shortcuts', async () => {
+  it('opens the task form with date and template controls', async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(screen.getByRole('button', { name: '新建任务' }));
 
     expect(screen.getByRole('heading', { name: '添加一个真实执行任务' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '今天' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '明天' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '下周' })).toBeInTheDocument();
+    expect(screen.getByLabelText('日期')).toHaveValue('2026-06-08');
     expect(screen.getByRole('combobox', { name: '所属项目' })).toHaveTextContent('TA 论文');
+
+    await user.selectOptions(screen.getByRole('combobox', { name: '套用模板' }), 'paper');
+
+    expect(screen.getByLabelText<HTMLTextAreaElement>('任务说明').value).toContain('章节：');
   });
 
   it('creates a project from the task form and selects it', async () => {

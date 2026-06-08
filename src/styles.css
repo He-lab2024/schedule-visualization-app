@@ -1996,7 +1996,8 @@ select:disabled {
 
 .form-head,
 .form-actions,
-.field.span-2 {
+.field.span-2,
+.task-form > .span-2 {
   grid-column: 1 / -1;
 }
 
@@ -2064,15 +2065,10 @@ select:disabled {
   resize: vertical;
 }
 
-.quick-date-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
 .quick-project-form {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: end;
   gap: 8px;
   padding: 12px;
   border: 1px solid #d8dde6;
@@ -2091,15 +2087,13 @@ select:disabled {
   background: #ffffff;
 }
 
-.quick-date-buttons button {
-  min-height: 28px;
-  padding: 0 9px;
-  border: 1px solid #d8dde6;
-  border-radius: 7px;
-  color: #465264;
-  background: #f8fafc;
-  font-size: 12px;
-  font-weight: 800;
+.quick-project-form .quick-project-next {
+  grid-column: 1 / 4;
+}
+
+.quick-project-form .primary-action {
+  min-width: 112px;
+  white-space: nowrap;
 }
 
 .form-error {
@@ -2262,6 +2256,14 @@ select:disabled {
 
   .quick-project-form {
     grid-template-columns: 1fr;
+  }
+
+  .quick-project-form .quick-project-next {
+    grid-column: auto;
+  }
+
+  .quick-project-form .primary-action {
+    width: 100%;
   }
 
   .local-folder-actions {

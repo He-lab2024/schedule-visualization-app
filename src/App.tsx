@@ -2684,6 +2684,7 @@ function TaskForm({
     deadline: draftSafeDate(),
     next: '',
   });
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [draft, setDraft] = useState<Task>(
     task ?? initialTask ?? {
       id: `t-${Date.now()}`,
@@ -2890,6 +2891,7 @@ function TaskForm({
             />
             <input
               aria-label="新项目下一步"
+              className="quick-project-next"
               placeholder="下一步"
               value={quickProjectDraft.next}
               onChange={(event) => setQuickProjectDraft((current) => ({ ...current, next: event.target.value }))}
@@ -2903,12 +2905,11 @@ function TaskForm({
           <label className="field">
             <span>套用模板</span>
             <select
-              defaultValue=""
+              value={selectedTemplateId}
               onChange={(event) => {
-                if (event.target.value) {
-                  applyTemplate(event.target.value);
-                  event.currentTarget.value = '';
-                }
+                const templateId = event.target.value;
+                setSelectedTemplateId(templateId);
+                if (templateId) applyTemplate(templateId);
               }}
             >
               <option value="">选择字段模板</option>
@@ -2923,17 +2924,6 @@ function TaskForm({
         <label className="field">
           <span>日期</span>
           <input value={draft.date} onChange={(event) => updateDraft('date', event.target.value)} type="date" />
-          <div className="quick-date-buttons">
-            <button onClick={() => updateDraft('date', appDate.today)} type="button">
-              今天
-            </button>
-            <button onClick={() => updateDraft('date', addDays(appDate.today, 1))} type="button">
-              明天
-            </button>
-            <button onClick={() => updateDraft('date', addDays(appDate.today, 7))} type="button">
-              下周
-            </button>
-          </div>
         </label>
         <label className="field">
           <span>开始时间</span>
