@@ -1,0 +1,8 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">科研日程驾驶舱图标</title>
+  <desc id="desc">深色方形底上的黄色研字标记，代表科研日程驾驶舱。</desc>
+  <rect width="128" height="128" rx="22" fill="#17202c"/>
+  <rect x="18" y="18" width="92" height="92" rx="14" fill="#f5c84b"/>
+  <path d="M36 39h56v10H69v13h20v10H69v24H58V72H39V62h19V49H36V39Z" fill="#17202c"/>
+  <path d="M84 78c5 4 9 8 13 14l-8 6c-3-6-7-11-12-15l7-5Z" fill="#17202c"/>
+</svg>
