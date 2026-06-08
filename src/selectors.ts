@@ -21,14 +21,51 @@ export const getTodayMetrics = (tasks: Task[], date: string) => {
     .reduce((total, task) => total + task.duration, 0);
   const plannedMinutes = todayTasks.reduce((total, task) => total + task.duration, 0);
   const loadPercent = Math.min(100, Math.round((plannedMinutes / 360) * 100));
+  const riskCount = todayTasks.filter((task) => task.status === 'blocked' || task.status === 'delayed').length;
+  const doneCount = todayTasks.filter((task) => task.status === 'done').length;
 
   return {
     taskCount: todayTasks.length,
+    doneCount,
+    riskCount,
     deepWorkHours: `${(deepWorkMinutes / 60).toFixed(1)}h`,
     loadPercent,
     highEnergyCount: todayTasks.filter((task) => task.energy === '高').length,
   };
 };
+
+const statusWeight: Record<TaskStatus, number> = {
+  blocked: 0,
+  delayed: 1,
+  active: 2,
+  planned: 3,
+  done: 4,
+  cancelled: 5,
+};
+
+export const sortTasksForToday = (tasks: Task[]) =>
+  [...tasks].sort((a, b) => {
+    const riskDiff = statusWeight[a.status] - statusWeight[b.status];
+    if (riskDiff !== 0) return riskDiff;
+    const priorityDiff = (a.priority ?? 9) - (b.priority ?? 9);
+    if (priorityDiff !== 0) return priorityDiff;
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    if (a.energy !== b.energy) return a.energy === '高' ? -1 : b.energy === '高' ? 1 : 0;
+    return a.start.localeCompare(b.start);
+  });
+
+export const getTimeBlock = (start: string) => {
+  const hour = Number(start.slice(0, 2));
+  if (hour < 12) return '上午';
+  if (hour < 18) return '下午';
+  return '晚上';
+};
+
+export const getTodayTimeBlocks = (tasks: Task[]) =>
+  ['上午', '下午', '晚上'].map((label) => ({
+    label,
+    tasks: sortTasksForToday(tasks.filter((task) => getTimeBlock(task.start) === label)),
+  }));
 
 export const getEnergySummary = (tasks: Task[]) => {
   const energyLevels: EnergyLevel[] = ['高', '中', '低'];
@@ -48,6 +85,57 @@ export const getWeeklyLoads = (tasks: Task[], weekDays: WeekDay[]) =>
       value: Math.min(100, Math.round((minutes / 360) * 100) + highEnergy * 8),
     };
   });
+
+export const getWeeklyWorkloadDetails = (tasks: Task[], weekDays: WeekDay[]) =>
+  weekDays.map((day) => {
+    const dayTasks = getTasksForDate(tasks, day.date);
+    const minutes = dayTasks.reduce((total, task) => total + task.duration, 0);
+    const highEnergyCount = dayTasks.filter((task) => task.energy === '高').length;
+    const riskCount = dayTasks.filter((task) => task.status === 'blocked' || task.status === 'delayed').length;
+    const doneCount = dayTasks.filter((task) => task.status === 'done').length;
+    const loadPercent = Math.min(100, Math.round((minutes / 360) * 100) + highEnergyCount * 8);
+    const warnings: string[] = [];
+    if (dayTasks.length >= 4) warnings.push('任务偏多');
+    if (highEnergyCount >= 2) warnings.push('高脑力集中');
+    if (riskCount >= 2) warnings.push('延期/阻塞堆积');
+
+    return {
+      ...day,
+      taskCount: dayTasks.length,
+      doneCount,
+      riskCount,
+      highEnergyCount,
+      minutes,
+      loadPercent,
+      warnings,
+    };
+  });
+
+export const getWeeklyWorkloadAlerts = (
+  tasks: Task[],
+  weekDays: WeekDay[],
+): Array<{ day: string; title: string; text: string; tone: 'hot' | 'warn' | 'calm' }> => {
+  const details = getWeeklyWorkloadDetails(tasks, weekDays);
+  const alerts: Array<{ day: string; title: string; text: string; tone: 'hot' | 'warn' | 'calm' }> = details.flatMap((day) =>
+    day.warnings.map((warning) => ({
+      day: day.label,
+      title: `${day.label}${warning}`,
+      text: `${day.taskCount} 个任务，${day.highEnergyCount} 个高脑力，${day.riskCount} 个风险任务。`,
+      tone: warning.includes('堆积') ? 'hot' : 'warn',
+    })),
+  );
+
+  if (alerts.length > 0) return alerts.slice(0, 4);
+
+  return [
+    {
+      day: '本周',
+      title: '本周负载可控',
+      text: '任务数量、高脑力分布和风险堆积都在可处理范围内。',
+      tone: 'calm',
+    },
+  ];
+};
 
 export const getHighEnergyLoads = (tasks: Task[], weekDays: WeekDay[]) =>
   weekDays.map((day) => {

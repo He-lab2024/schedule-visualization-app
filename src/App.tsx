@@ -40,10 +40,14 @@ import {
   getProjectRuntimeState,
   getReviewStats,
   getReviewSuggestions,
+  getTodayTimeBlocks,
   getTasksForDate,
   getTasksForProject,
   getTodayMetrics,
+  getWeeklyWorkloadAlerts,
+  getWeeklyWorkloadDetails,
   getWeeklyLoads,
+  sortTasksForToday,
   statusLabel,
   toMap,
 } from './selectors';
@@ -339,6 +343,12 @@ function App() {
     setSelectedTask((current) => (current && selectedTaskIds.has(current.id) ? { ...current, date } : current));
   };
 
+  const updateTaskDate = (taskId: string, date: string) => {
+    if (!date) return;
+    setTaskList((current) => current.map((task) => (task.id === taskId ? { ...task, date } : task)));
+    setSelectedTask((current) => (current?.id === taskId ? { ...current, date } : current));
+  };
+
   const batchUpdateCategory = (category: CategoryId) => {
     if (!category || selectedTaskIds.size === 0) return;
     setTaskList((current) => current.map((task) => (selectedTaskIds.has(task.id) ? { ...task, category } : task)));
@@ -464,6 +474,7 @@ function App() {
           selectedTaskIds={selectedTaskIds}
           todayTasks={todayTasks}
           widgetList={widgetList}
+          onTaskDateChange={updateTaskDate}
           onSelectTask={setSelectedTask}
           onToggleTaskSelection={toggleTaskSelection}
         />
@@ -473,6 +484,7 @@ function App() {
           allTasks={filteredTasks}
           categoryList={categoryList}
           selectedTaskIds={selectedTaskIds}
+          onTaskDateChange={updateTaskDate}
           onSelectTask={setSelectedTask}
           onToggleTaskSelection={toggleTaskSelection}
         />
@@ -483,6 +495,7 @@ function App() {
           allTasks={filteredTasks}
           categoryList={categoryList}
           selectedTaskIds={selectedTaskIds}
+          onTaskDateChange={updateTaskDate}
           onSelectTask={setSelectedTask}
           onToggleTaskSelection={toggleTaskSelection}
         />
@@ -676,6 +689,7 @@ function TodayDashboard({
   selectedTaskIds,
   todayTasks,
   widgetList,
+  onTaskDateChange,
   onSelectTask,
   onToggleTaskSelection,
 }: {
@@ -684,6 +698,7 @@ function TodayDashboard({
   selectedTaskIds: Set<string>;
   todayTasks: Task[];
   widgetList: Widget[];
+  onTaskDateChange: (taskId: string, date: string) => void;
   onSelectTask: (task: Task) => void;
   onToggleTaskSelection: (taskId: string) => void;
 }) {
@@ -693,10 +708,8 @@ function TodayDashboard({
   const reminders = allTasks
     .filter((task) => task.status === 'blocked' || task.status === 'delayed' || task.date === appDate.today)
     .slice(0, 3);
-  const priorityTasks = todayTasks
-    .filter((task) => task.priority)
-    .sort((a, b) => (a.priority ?? 9) - (b.priority ?? 9))
-    .slice(0, 3);
+  const recommendedTasks = sortTasksForToday(todayTasks);
+  const timeBlocks = getTodayTimeBlocks(todayTasks);
   const isWidgetVisible = (widgetId: string) => widgetList.find((widget) => widget.id === widgetId)?.visible;
 
   return (
@@ -709,18 +722,19 @@ function TodayDashboard({
         </div>
         <div className="hero-metrics">
           <Metric value={String(todayMetrics.taskCount)} label="今日任务" />
-          <Metric value={todayMetrics.deepWorkHours} label="深度工作" />
-          <Metric value={`${todayMetrics.loadPercent}%`} label="负荷" tone="warn" />
+          <Metric value={String(todayMetrics.doneCount)} label="已完成" />
+          <Metric value={String(todayMetrics.riskCount)} label="风险任务" tone={todayMetrics.riskCount > 0 ? 'warn' : undefined} />
+          <Metric value={String(todayMetrics.highEnergyCount)} label="高能量" />
         </div>
       </div>
 
       <div className="span-4 panel">
-        <PanelTitle icon={ListChecks} title="今日三件事" />
+        <PanelTitle icon={ListChecks} title="今日推荐顺序" />
         <div className="priority-list">
-          {priorityTasks.length === 0 ? (
+          {recommendedTasks.length === 0 ? (
             <EmptyState title="没有匹配的今日重点" text="调整搜索或状态筛选后，这里会重新显示优先级最高的任务。" />
           ) : (
-            priorityTasks.map((task, index) => (
+            recommendedTasks.slice(0, 5).map((task, index) => (
               <div className="selectable-task" key={task.id}>
                 <input
                   aria-label={`选择${task.title}`}
@@ -743,11 +757,11 @@ function TodayDashboard({
         <div className="span-7 panel">
           <PanelTitle icon={Clock3} title="今日时间轴" />
           <div className="timeline">
-            {todayTasks.length === 0 ? (
+            {recommendedTasks.length === 0 ? (
               <EmptyState title="今日没有匹配任务" text="搜索和状态筛选会同步作用到今日时间轴。" />
             ) : (
-              todayTasks.map((task) => (
-                <div className="selectable-task" key={task.id}>
+              recommendedTasks.map((task) => (
+                <div className="selectable-task task-with-date" key={task.id}>
                   <input
                     aria-label={`选择${task.title}`}
                     checked={selectedTaskIds.has(task.id)}
@@ -764,11 +778,19 @@ function TodayDashboard({
                     <div>
                       <strong>{task.title}</strong>
                       <small>
-                        {task.duration} 分钟 · {projectMap[task.projectId].name} · {statusLabel[task.status]}
+                        {task.duration} 分钟 · {projectMap[task.projectId].name} · {statusLabel[task.status]} · 优先级
+                        {task.priority ?? '未设'}
                       </small>
                     </div>
                     <CategoryPill category={task.category} categoryList={categoryList} />
                   </button>
+                  <input
+                    aria-label={`调整${task.title}日期`}
+                    className="quick-date-input"
+                    onChange={(event) => onTaskDateChange(task.id, event.target.value)}
+                    type="date"
+                    value={task.date}
+                  />
                 </div>
               ))
             )}
@@ -827,6 +849,28 @@ function TodayDashboard({
           </div>
         </div>
       )}
+
+      <div className="span-12 panel">
+        <PanelTitle icon={CalendarCheck} title="今日时间块" />
+        <div className="time-block-grid">
+          {timeBlocks.map((block) => (
+            <div className="time-block" key={block.label}>
+              <strong>{block.label}</strong>
+              {block.tasks.length === 0 ? (
+                <span>暂无安排</span>
+              ) : (
+                block.tasks.map((task) => (
+                  <button key={task.id} onClick={() => onSelectTask(task)} type="button">
+                    <span className={`status-dot status-${task.status}`} />
+                    <small>{task.start}</small>
+                    <b>{task.title}</b>
+                  </button>
+                ))
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
     </section>
   );
 }
@@ -835,70 +879,101 @@ function WeeklyMatrix({
   allTasks,
   categoryList,
   selectedTaskIds,
+  onTaskDateChange,
   onSelectTask,
   onToggleTaskSelection,
 }: {
   allTasks: Task[];
   categoryList: Category[];
   selectedTaskIds: Set<string>;
+  onTaskDateChange: (taskId: string, date: string) => void;
   onSelectTask: (task: Task) => void;
   onToggleTaskSelection: (taskId: string) => void;
 }) {
   const weeklyLoads = getWeeklyLoads(allTasks, weekDays);
+  const workloadDetails = getWeeklyWorkloadDetails(allTasks, weekDays);
+  const workloadAlerts = getWeeklyWorkloadAlerts(allTasks, weekDays);
 
   return (
-    <section className="panel full-panel">
-      <PanelTitle icon={CalendarDays} title="日期 × 任务类型" />
-      <div className="week-matrix">
-        <div className="matrix-corner">类型</div>
-        {weekDays.map((day) => (
-          <div className="matrix-day" key={day.date}>
-            <strong>{day.label}</strong>
-            <span>{day.short}</span>
-          </div>
-        ))}
-        {categoryList.map((category) => (
-          <div className="matrix-row" key={category.id}>
-            <div className="matrix-type" style={accentStyle(categoryList, category.id)}>
-              <span />
-              {category.name}
-            </div>
-            {weekDays.map((day) => {
-              const dayTasks = allTasks.filter((task) => task.date === day.date && task.category === category.id);
-              return (
-                <div className={`matrix-cell ${dayTasks.length > 1 ? 'is-dense' : ''}`} key={`${category.id}-${day.date}`}>
-                  {dayTasks.map((task) => (
-                    <div className="mini-task-wrap" key={task.id}>
-                      <input
-                        aria-label={`选择${task.title}`}
-                        checked={selectedTaskIds.has(task.id)}
-                        onChange={() => onToggleTaskSelection(task.id)}
-                        type="checkbox"
-                      />
-                      <button
-                        className={`mini-task status-${task.status}`}
-                        onClick={() => onSelectTask(task)}
-                        style={accentStyle(categoryList, task.category)}
-                        type="button"
-                      >
-                        <strong>{task.title}</strong>
-                        <span>
-                          {task.start} · {statusLabel[task.status]}
-                        </span>
-                      </button>
-                    </div>
-                  ))}
-                  {dayTasks.length === 0 && <span className="empty-slot" />}
-                </div>
-              );
-            })}
-          </div>
-        ))}
+    <section className="page-grid">
+      <div className="span-12 panel">
+        <PanelTitle icon={Gauge} title="每日负载" />
+        <div className="weekly-load-grid">
+          {workloadDetails.map((detail) => (
+            <WeeklyLoadCard key={detail.date} detail={detail} />
+          ))}
+        </div>
       </div>
-      <div className="matrix-footer">
-        {weeklyLoads.map((item) => (
-          <LoadChip key={item.label} label={item.label} value={item.value} />
-        ))}
+
+      <div className="span-12 panel">
+        <PanelTitle icon={AlertTriangle} title="超载提醒" />
+        <div className="workload-alert-grid">
+          {workloadAlerts.map((alert) => (
+            <WorkloadAlert key={`${alert.day}-${alert.title}`} title={alert.title} text={alert.text} tone={alert.tone} />
+          ))}
+        </div>
+      </div>
+
+      <div className="span-12 panel full-panel">
+        <PanelTitle icon={CalendarDays} title="日期 × 任务类型" />
+        <div className="week-matrix">
+          <div className="matrix-corner">类型</div>
+          {weekDays.map((day) => (
+            <div className="matrix-day" key={day.date}>
+              <strong>{day.label}</strong>
+              <span>{day.short}</span>
+            </div>
+          ))}
+          {categoryList.map((category) => (
+            <div className="matrix-row" key={category.id}>
+              <div className="matrix-type" style={accentStyle(categoryList, category.id)}>
+                <span />
+                {category.name}
+              </div>
+              {weekDays.map((day) => {
+                const dayTasks = allTasks.filter((task) => task.date === day.date && task.category === category.id);
+                return (
+                  <div className={`matrix-cell ${dayTasks.length > 1 ? 'is-dense' : ''}`} key={`${category.id}-${day.date}`}>
+                    {dayTasks.map((task) => (
+                      <div className="mini-task-wrap" key={task.id}>
+                        <input
+                          aria-label={`选择${task.title}`}
+                          checked={selectedTaskIds.has(task.id)}
+                          onChange={() => onToggleTaskSelection(task.id)}
+                          type="checkbox"
+                        />
+                        <button
+                          className={`mini-task status-${task.status}`}
+                          onClick={() => onSelectTask(task)}
+                          style={accentStyle(categoryList, task.category)}
+                          type="button"
+                        >
+                          <strong>{task.title}</strong>
+                          <span>
+                            {task.start} · {statusLabel[task.status]}
+                          </span>
+                        </button>
+                        <input
+                          aria-label={`调整${task.title}日期`}
+                          className="quick-date-input"
+                          onChange={(event) => onTaskDateChange(task.id, event.target.value)}
+                          type="date"
+                          value={task.date}
+                        />
+                      </div>
+                    ))}
+                    {dayTasks.length === 0 && <span className="empty-slot" />}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+        <div className="matrix-footer">
+          {weeklyLoads.map((item) => (
+            <LoadChip key={item.label} label={item.label} value={item.value} />
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -943,12 +1018,14 @@ function Workbench({
   allTasks,
   categoryList,
   selectedTaskIds,
+  onTaskDateChange,
   onSelectTask,
   onToggleTaskSelection,
 }: {
   allTasks: Task[];
   categoryList: Category[];
   selectedTaskIds: Set<string>;
+  onTaskDateChange: (taskId: string, date: string) => void;
   onSelectTask: (task: Task) => void;
   onToggleTaskSelection: (taskId: string) => void;
 }) {
@@ -971,6 +1048,7 @@ function Workbench({
           categoryList={categoryList}
           selectedTaskIds={selectedTaskIds}
           tasks={writingTasks}
+          onTaskDateChange={onTaskDateChange}
           onSelectTask={onSelectTask}
           onToggleTaskSelection={onToggleTaskSelection}
         />
@@ -987,6 +1065,7 @@ function Workbench({
           categoryList={categoryList}
           selectedTaskIds={selectedTaskIds}
           tasks={experimentTasks}
+          onTaskDateChange={onTaskDateChange}
           onSelectTask={onSelectTask}
           onToggleTaskSelection={onToggleTaskSelection}
         />
@@ -1577,6 +1656,53 @@ function EnergyBlock({ label, value, color }: { label: string; value: number; co
   );
 }
 
+function WeeklyLoadCard({
+  detail,
+}: {
+  detail: {
+    label: string;
+    short: string;
+    taskCount: number;
+    doneCount: number;
+    riskCount: number;
+    highEnergyCount: number;
+    minutes: number;
+    loadPercent: number;
+    warnings: string[];
+  };
+}) {
+  return (
+    <div className={`weekly-load-card ${detail.warnings.length > 0 ? 'is-warning' : ''}`}>
+      <div>
+        <strong>{detail.label}</strong>
+        <span>{detail.short}</span>
+      </div>
+      <div className="tiny-progress">
+        <span style={{ width: `${detail.loadPercent}%` }} />
+      </div>
+      <div className="load-stats">
+        <span>{detail.taskCount} 任务</span>
+        <span>{detail.doneCount} 完成</span>
+        <span>{detail.highEnergyCount} 高能量</span>
+        <span>{detail.riskCount} 风险</span>
+      </div>
+      <small>{detail.warnings.length ? detail.warnings.join(' / ') : `${Math.round(detail.minutes / 60 * 10) / 10}h 可控`}</small>
+    </div>
+  );
+}
+
+function WorkloadAlert({ title, text, tone }: { title: string; text: string; tone: 'hot' | 'warn' | 'calm' }) {
+  return (
+    <div className={`workload-alert workload-alert-${tone}`}>
+      <AlertTriangle size={17} />
+      <div>
+        <strong>{title}</strong>
+        <span>{text}</span>
+      </div>
+    </div>
+  );
+}
+
 function LoadChip({ label, value }: { label: string; value: number }) {
   return (
     <div className="load-chip">
@@ -1602,12 +1728,14 @@ function TaskList({
   categoryList,
   selectedTaskIds,
   tasks: taskList,
+  onTaskDateChange,
   onSelectTask,
   onToggleTaskSelection,
 }: {
   categoryList: Category[];
   selectedTaskIds: Set<string>;
   tasks: Task[];
+  onTaskDateChange: (taskId: string, date: string) => void;
   onSelectTask: (task: Task) => void;
   onToggleTaskSelection: (taskId: string) => void;
 }) {
@@ -1617,7 +1745,7 @@ function TaskList({
         <EmptyState title="没有匹配任务" text="这里的任务列表会跟随顶部搜索和状态筛选更新。" />
       ) : (
         taskList.map((task) => (
-          <div className="selectable-task" key={task.id}>
+          <div className="selectable-task task-with-date" key={task.id}>
             <input
               aria-label={`选择${task.title}`}
               checked={selectedTaskIds.has(task.id)}
@@ -1631,6 +1759,13 @@ function TaskList({
                 {task.date} · {statusLabel[task.status]}
               </small>
             </button>
+            <input
+              aria-label={`调整${task.title}日期`}
+              className="quick-date-input"
+              onChange={(event) => onTaskDateChange(task.id, event.target.value)}
+              type="date"
+              value={task.date}
+            />
           </div>
         ))
       )}
