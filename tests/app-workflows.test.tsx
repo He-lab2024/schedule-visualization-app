@@ -23,7 +23,7 @@ describe('App core workflows', () => {
     expect(screen.getByLabelText('搜索任务')).toHaveFocus();
   });
 
-  it('opens the task form with date and template controls', async () => {
+  it('opens the task form with dynamic research fields', async () => {
     const user = userEvent.setup();
     render(<App />);
 
@@ -31,11 +31,18 @@ describe('App core workflows', () => {
 
     expect(screen.getByRole('heading', { name: '添加一个真实执行任务' })).toBeInTheDocument();
     expect(screen.getByLabelText('日期')).toHaveValue('2026-06-08');
-    expect(screen.getByRole('combobox', { name: '所属项目' })).toHaveTextContent('TA 论文');
+    expect(screen.getByRole('combobox', { name: '所属课题/项目' })).toHaveTextContent('TA 论文');
+    expect(screen.queryByLabelText('实际耗时')).not.toBeInTheDocument();
+    expect(screen.getByText('已按“论文任务”显示专属字段。')).toBeInTheDocument();
+    expect(screen.getByLabelText('章节')).toBeInTheDocument();
+    expect(screen.queryByLabelText('地点')).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByRole('combobox', { name: '套用模板' }), 'paper');
+    await user.selectOptions(screen.getByRole('combobox', { name: '任务类型' }), 'experiment');
 
-    expect(screen.getByLabelText<HTMLTextAreaElement>('任务说明').value).toContain('章节：');
+    expect(screen.getByLabelText('样品')).toBeInTheDocument();
+    expect(screen.getByLabelText('仪器')).toBeInTheDocument();
+    expect(screen.getByLabelText('地点')).toBeInTheDocument();
+    expect(screen.queryByLabelText('章节')).not.toBeInTheDocument();
   });
 
   it('creates a project from the task form and selects it', async () => {
@@ -43,11 +50,11 @@ describe('App core workflows', () => {
     render(<App />);
 
     await user.click(screen.getByRole('button', { name: '新建任务' }));
-    await user.click(screen.getByRole('button', { name: '新建项目' }));
+    await user.click(screen.getByRole('button', { name: '快速新建课题/项目' }));
     await user.type(screen.getByLabelText('新项目名称'), '临时投稿项目');
     await user.click(screen.getByRole('button', { name: '创建并选中' }));
 
-    expect(screen.getByRole('combobox', { name: '所属项目' })).toHaveTextContent('临时投稿项目');
+    expect(screen.getByRole('combobox', { name: '所属课题/项目' })).toHaveTextContent('临时投稿项目');
   });
 
   it('moves tasks to unassigned project when deleting a project with tasks', async () => {
@@ -55,7 +62,7 @@ describe('App core workflows', () => {
     vi.spyOn(window, 'prompt').mockReturnValue('1');
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: '设置模板' }));
+    await user.click(screen.getByRole('button', { name: '设置' }));
     await user.click(screen.getAllByLabelText('删除项目')[0]);
 
     expect(window.prompt).toHaveBeenCalled();
@@ -67,7 +74,7 @@ describe('App core workflows', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: '设置模板' }));
+    await user.click(screen.getByRole('button', { name: '设置' }));
 
     expect(screen.getByText('本地数据文件夹')).toBeInTheDocument();
     expect(screen.getByText('浏览器缓存模式')).toBeInTheDocument();
@@ -80,7 +87,7 @@ describe('App core workflows', () => {
     vi.spyOn(window, 'prompt').mockReturnValue('1');
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: '项目进度' }));
+    await user.click(screen.getByRole('button', { name: '课题/项目' }));
     await user.click(screen.getAllByRole('button', { name: '删除项目' })[0]);
 
     expect(window.prompt).toHaveBeenCalled();
@@ -94,7 +101,7 @@ describe('App core workflows', () => {
     await user.click(screen.getByRole('button', { name: /1\s*转氨酶论文引言重写/ }));
     expect(screen.getByRole('heading', { name: '转氨酶论文引言重写' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: '退出详情' }));
+    await user.click(screen.getByRole('button', { name: '关闭' }));
 
     expect(screen.queryByRole('heading', { name: '转氨酶论文引言重写' })).not.toBeInTheDocument();
   });

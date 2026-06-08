@@ -19,12 +19,12 @@ export const projects: ProjectLane[] = [
     id: 'p-paper-ta',
     name: 'TA 论文',
     category: 'writing',
-    stage: '重写引言和图表',
+    stage: '引言第二版和图 3 逻辑收束',
     status: 'active',
     deadline: '2026-07-18',
     progress: 62,
     next: '锁定图 3 数据和引言逻辑',
-    blocker: '复测数据影响结果段落措辞',
+    blocker: '等复测数据确认后才能收束结果段落',
     cadence: '每日 2 个深度写作块',
     milestones: [
       { id: 'm-ta-intro', title: '引言第二版', date: '2026-06-10', done: false },
@@ -60,7 +60,7 @@ export const projects: ProjectLane[] = [
     deadline: '2026-07-05',
     progress: 28,
     next: '完成小型 notebook',
-    blocker: '不与论文高脑力时段叠加',
+    blocker: '避免和论文高脑力时段叠加',
     cadence: '每周 2 次 80 分钟',
     milestones: [
       { id: 'm-ml-env', title: '环境与示例跑通', date: '2026-06-10', done: false },
@@ -73,12 +73,12 @@ export const projects: ProjectLane[] = [
     id: 'p-life-rhythm',
     name: '生活维护',
     category: 'life',
-    stage: '节奏保护',
+    stage: '晚间恢复边界',
     status: 'active',
     deadline: '2026-06-30',
     progress: 71,
     next: '固定晚间恢复和伴侣沟通时间',
-    blocker: '深夜临时补写作',
+    blocker: '深夜临时补写作会挤压恢复',
     cadence: '每日轻量维护',
     milestones: [
       { id: 'm-life-evening', title: '固定晚间恢复', date: '2026-06-11', done: false },
@@ -99,11 +99,11 @@ export const tasks: Task[] = [
     start: '08:40',
     duration: 110,
     energy: '高',
-    location: '办公室',
+    location: '',
     status: 'active',
     priority: 1,
     standard: '完成引言第二版并标出缺口句',
-    dependency: '参考文献筛选完成',
+    dependency: '',
     detail: '围绕胺供体优化、平衡推动和工艺适配重新组织段落。',
     paperFields: {
       chapter: '引言',
@@ -144,12 +144,18 @@ export const tasks: Task[] = [
     start: '14:00',
     duration: 95,
     energy: '高',
-    location: '办公室',
+    location: '',
     status: 'planned',
     priority: 3,
     standard: '输出可复现脚本和新版图表草稿',
-    dependency: '复测数据导出',
+    dependency: '等待复测数据导出',
     detail: '统一重复实验命名，检查空白扣除和归一化逻辑。',
+    dataFields: {
+      source: 'HPLC 复测导出表',
+      notebook: 'fig3-cleaning.ipynb',
+      output: '新版图表草稿和清洗脚本',
+      reproducibility: '脚本可从原始导出表重跑',
+    },
   },
   {
     id: 't4',
@@ -163,8 +169,14 @@ export const tasks: Task[] = [
     location: '家',
     status: 'planned',
     standard: '完成厨房整理并留出无屏幕休息',
-    dependency: '晚饭后',
+    dependency: '',
     detail: '生活约束作为正式日程，不挤压到深夜写作。',
+    lifeFields: {
+      place: '家',
+      people: '自己 / 伴侣',
+      boundary: '21:30 后不补写作',
+      recoveryLevel: '低负荷恢复',
+    },
   },
   {
     id: 't5',
@@ -198,10 +210,10 @@ export const tasks: Task[] = [
     start: '15:00',
     duration: 80,
     energy: '中',
-    location: '办公室',
+    location: '',
     status: 'planned',
     standard: '复现一个小型回归 notebook',
-    dependency: '安装环境已验证',
+    dependency: '',
     detail: '只保留和实验数据分析相关的部分。',
   },
   {
@@ -240,6 +252,12 @@ export const tasks: Task[] = [
     standard: '确定下周 3 个推进点和 2 个保护时段',
     dependency: '本周任务状态更新',
     detail: '复盘延期原因、脑力负荷和生活时间是否被侵占。',
+    lifeFields: {
+      place: '家',
+      people: '自己',
+      boundary: '下周至少保留 2 个晚间恢复时段',
+      recoveryLevel: '周复盘',
+    },
   },
 ];
 
@@ -255,8 +273,8 @@ export const weekDays: WeekDay[] = [
 
 export const widgets: Widget[] = [
   { id: 'timeline', name: '今日时间轴', visible: true },
-  { id: 'project-progress', name: '项目进度', visible: true },
-  { id: 'deadline-alerts', name: '截止提醒', visible: true },
+  { id: 'project-progress', name: '课题/项目推进', visible: true },
+  { id: 'deadline-alerts', name: '检查点提醒', visible: true },
   { id: 'energy-load', name: '精力负荷', visible: true },
   { id: 'life-rhythm', name: '家庭生活', visible: true },
   { id: 'inbox', name: '收件箱', visible: false },
@@ -271,7 +289,8 @@ export const viewPresets: ViewPreset[] = [
 ];
 
 export const fieldTemplates: FieldTemplate[] = [
-  { id: 'paper', name: '论文任务', fields: ['章节', '图表', '版本', '共同作者反馈', '完成标准'] },
-  { id: 'experiment', name: '实验任务', fields: ['样品', '仪器', '条件', '等待期', '预约状态'] },
-  { id: 'life', name: '生活维护', fields: ['地点', '对象', '时段', '恢复等级', '边界说明'] },
+  { id: 'writing', name: '论文任务', fields: ['章节', '图表', '版本', '共同作者反馈', '做到什么算完成'] },
+  { id: 'experiment', name: '实验任务', fields: ['样品', '仪器', '条件', '等待结果/等待事项', '预约状态'] },
+  { id: 'data', name: '数据任务', fields: ['数据来源', '脚本/Notebook', '输出物', '复现状态'] },
+  { id: 'life', name: '生活/恢复', fields: ['地点', '对象', '边界说明', '恢复等级'] },
 ];

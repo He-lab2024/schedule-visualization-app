@@ -97,7 +97,7 @@ export const getWeeklyWorkloadDetails = (tasks: Task[], weekDays: WeekDay[]) =>
     const warnings: string[] = [];
     if (dayTasks.length >= 4) warnings.push('任务偏多');
     if (highEnergyCount >= 2) warnings.push('高脑力集中');
-    if (riskCount >= 2) warnings.push('延期/阻塞堆积');
+    if (riskCount >= 2) warnings.push('卡住/延期堆积');
 
     return {
       ...day,
@@ -120,7 +120,7 @@ export const getWeeklyWorkloadAlerts = (
     day.warnings.map((warning) => ({
       day: day.label,
       title: `${day.label}${warning}`,
-      text: `${day.taskCount} 个任务，${day.highEnergyCount} 个高脑力，${day.riskCount} 个风险任务。`,
+      text: `${day.taskCount} 个任务，${day.highEnergyCount} 个高脑力，${day.riskCount} 个卡住/延期任务。`,
       tone: warning.includes('堆积') ? 'hot' : 'warn',
     })),
   );
@@ -131,7 +131,7 @@ export const getWeeklyWorkloadAlerts = (
     {
       day: '本周',
       title: '本周负载可控',
-      text: '任务数量、高脑力分布和风险堆积都在可处理范围内。',
+      text: '任务数量、高脑力分布和卡点堆积都在可处理范围内。',
       tone: 'calm',
     },
   ];
@@ -160,7 +160,7 @@ export const getProjectRuntimeState = (project: ProjectLane, tasks: Task[]) => {
   const runtimeStatus = riskTasks.length > 0 ? 'risk' : projectTasks.length === doneTasks.length && projectTasks.length > 0 ? 'done' : project.status;
   const progressTrend = project.trend.length > 0 ? project.trend : [project.progress];
   const riskTips = [
-    ...blockedTasks.map((task) => `${task.title} 阻塞：${task.delayReason ?? task.dependency}`),
+    ...blockedTasks.map((task) => `${task.title} 卡住：${task.delayReason ?? task.dependency}`),
     ...delayedTasks.map((task) => `${task.title} 延期：${task.delayReason ?? '未记录原因'}`),
   ];
 
@@ -174,7 +174,7 @@ export const getProjectRuntimeState = (project: ProjectLane, tasks: Task[]) => {
     nextTask,
     blocker: riskTasks[0]?.delayReason ?? project.blocker,
     progressTrend,
-    riskTips: riskTips.length ? riskTips : [`当前主要风险：${project.blocker}`],
+    riskTips: riskTips.length ? riskTips : project.blocker ? [`当前卡点：${project.blocker}`] : [],
   };
 };
 
@@ -184,7 +184,8 @@ export const getReviewStats = (tasks: Task[], categories: Category[], projects: 
   const blocked = tasks.filter((task) => task.status === 'blocked').length;
   const completionRate = Math.round((completed / Math.max(tasks.length, 1)) * 100);
   const delayRate = Math.round((delayed / Math.max(tasks.length, 1)) * 100);
-  const totalMinutes = tasks.reduce((total, task) => total + task.duration, 0);
+  const getLoggedMinutes = (task: Task) => task.actualDuration ?? task.duration;
+  const totalMinutes = tasks.reduce((total, task) => total + getLoggedMinutes(task), 0);
 
   const delayedTasks = tasks.filter((task) => task.delayReason);
   const reasonCounts = delayedTasks.reduce<Record<string, number>>((acc, task) => {
@@ -201,7 +202,7 @@ export const getReviewStats = (tasks: Task[], categories: Category[], projects: 
     category,
     minutes: tasks
       .filter((task) => task.category === category.id)
-      .reduce((total, task) => total + task.duration, 0),
+      .reduce((total, task) => total + getLoggedMinutes(task), 0),
   }));
   const safeTotalMinutes = Math.max(
     1,
@@ -211,13 +212,13 @@ export const getReviewStats = (tasks: Task[], categories: Category[], projects: 
     project,
     minutes: tasks
       .filter((task) => task.projectId === project.id)
-      .reduce((total, task) => total + task.duration, 0),
+      .reduce((total, task) => total + getLoggedMinutes(task), 0),
   }));
   const energyDistribution = getEnergySummary(tasks).map((item) => ({
     ...item,
     minutes: tasks
       .filter((task) => item.label.startsWith(task.energy))
-      .reduce((total, task) => total + task.duration, 0),
+      .reduce((total, task) => total + getLoggedMinutes(task), 0),
   }));
   const delayedByCategory = categories
     .map((category) => ({
@@ -259,16 +260,16 @@ export const getReviewStats = (tasks: Task[], categories: Category[], projects: 
     writingHours: (
       tasks
         .filter((task) => task.category === 'writing')
-        .reduce((total, task) => total + task.duration, 0) / 60
+        .reduce((total, task) => total + getLoggedMinutes(task), 0) / 60
     ).toFixed(1),
     dailySummary:
       tasks.length === 0
         ? '当前筛选下暂无任务。'
-        : `今日/本周视图内共有 ${tasks.length} 个任务，完成 ${completed} 个，风险 ${delayed} 个。`,
+        : `今日/本周视图内共有 ${tasks.length} 个任务，完成 ${completed} 个，卡住/延期 ${delayed} 个。`,
     weeklySummary:
       delayed > 0
-        ? `本周主要需要处理 ${delayed} 个延期或阻塞任务，优先消化风险来源。`
-        : '本周没有明显延期或阻塞堆积，可以维持当前节奏。',
+        ? `本周主要需要处理 ${delayed} 个卡住或延期任务，优先消化真正卡点。`
+        : '本周没有明显卡住或延期堆积，可以维持当前节奏。',
   };
 };
 
@@ -325,6 +326,6 @@ export const statusLabel: Record<TaskStatus, string> = {
   active: '进行中',
   done: '已完成',
   delayed: '延期',
-  blocked: '阻塞',
+  blocked: '卡住',
   cancelled: '取消',
 };

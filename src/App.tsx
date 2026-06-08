@@ -60,11 +60,11 @@ import { BrowserStorageAdapter, FileSystemStorageAdapter } from './storage';
 
 const navItems: Array<{ id: ViewId; label: string; icon: ComponentType<{ size?: number }> }> = [
   { id: 'today', label: '今日驾驶舱', icon: LayoutDashboard },
-  { id: 'week', label: '周计划矩阵', icon: CalendarDays },
-  { id: 'projects', label: '项目进度', icon: Kanban },
-  { id: 'workbench', label: '论文/实验', icon: FlaskConical },
+  { id: 'week', label: '周计划', icon: CalendarDays },
+  { id: 'projects', label: '课题/项目', icon: Kanban },
+  { id: 'workbench', label: '科研工作台', icon: FlaskConical },
   { id: 'review', label: '复盘分析', icon: BarChart3 },
-  { id: 'settings', label: '设置模板', icon: Settings },
+  { id: 'settings', label: '设置', icon: Settings },
 ];
 
 const fallbackCategory: Category = { id: 'custom', name: '自定义', color: '#607d8b', soft: '#edf2f4' };
@@ -121,7 +121,7 @@ const unassignedProject: ProjectLane = {
   deadline: appDate.today,
   progress: 0,
   next: '稍后整理任务归属',
-  blocker: '暂无',
+  blocker: '',
   cadence: '按需整理',
   milestones: [],
   trend: [0],
@@ -132,32 +132,89 @@ const taskStatuses: Array<{ id: TaskStatus; label: string }> = [
   { id: 'active', label: '进行中' },
   { id: 'done', label: '已完成' },
   { id: 'delayed', label: '延期' },
-  { id: 'blocked', label: '阻塞' },
+  { id: 'blocked', label: '卡住' },
   { id: 'cancelled', label: '取消' },
 ];
 
 const taskFilters: Array<{ id: TaskFilter; label: string }> = [
   { id: 'all', label: '全部' },
-  { id: 'active', label: '进行中' },
-  { id: 'risk', label: '风险' },
+  { id: 'active', label: '待推进' },
+  { id: 'risk', label: '卡住/延期' },
   { id: 'done', label: '已完成' },
 ];
 
 const reviewMetrics: Widget[] = [
   { id: 'summary', name: '完成与延期', visible: true },
-  { id: 'distribution', name: '分类/项目投入', visible: true },
+  { id: 'distribution', name: '类型/项目投入', visible: true },
   { id: 'energy', name: '高脑力负荷', visible: true },
-  { id: 'insights', name: '风险洞察', visible: true },
+  { id: 'insights', name: '卡点洞察', visible: true },
   { id: 'suggestions', name: '下周建议', visible: true },
 ];
 
 const projectStatusLabel: Record<ProjectStatus, string> = {
-  'not-started': '未开始',
-  active: '进行中',
-  risk: '风险',
+  'not-started': '准备中',
+  active: '推进中',
+  risk: '卡住',
   paused: '暂停',
-  done: '完成',
+  done: '已收尾',
 };
+
+const priorityLabel: Record<1 | 2 | 3, string> = {
+  1: '今天必须',
+  2: '尽量推进',
+  3: '可顺延',
+};
+
+const locationCategories = new Set(['experiment', 'life', 'recovery']);
+const paperCategories = new Set(['writing']);
+const dataCategories = new Set(['data']);
+const lifeCategories = new Set(['life', 'recovery']);
+
+const needsLocation = (category: CategoryId) => locationCategories.has(category);
+const templateForCategory = (category: CategoryId) => (category === 'writing' ? 'writing' : category);
+
+const makePaperFields = (task?: Task) =>
+  task?.paperFields ?? {
+    chapter: '',
+    figure: '',
+    version: '',
+    feedback: '',
+  };
+
+const makeExperimentFields = (task?: Task) =>
+  task?.experimentFields ?? {
+    sample: '',
+    instrument: '',
+    condition: '',
+    waiting: '',
+    reservation: '',
+  };
+
+const makeDataFields = (task?: Task) =>
+  task?.dataFields ?? {
+    source: '',
+    notebook: '',
+    output: '',
+    reproducibility: '',
+  };
+
+const makeLifeFields = (task?: Task) =>
+  task?.lifeFields ?? {
+    place: task?.location ?? '',
+    people: '',
+    boundary: '',
+    recoveryLevel: '',
+  };
+
+const normalizeTaskForCategory = (task: Task, category: CategoryId): Task => ({
+  ...task,
+  category,
+  location: needsLocation(category) ? task.location : '',
+  paperFields: paperCategories.has(category) ? makePaperFields(task) : undefined,
+  experimentFields: category === 'experiment' ? makeExperimentFields(task) : undefined,
+  dataFields: dataCategories.has(category) ? makeDataFields(task) : undefined,
+  lifeFields: lifeCategories.has(category) ? makeLifeFields(task) : undefined,
+});
 
 const ensureUnassignedProject = (projectList: ProjectLane[]) =>
   projectList.some((project) => project.id === unassignedProjectId) ? projectList : [...projectList, unassignedProject];
@@ -280,7 +337,26 @@ const matchesSearch = (task: Task, query: string, categoryList: Category[], proj
   if (!normalized) return true;
   const categoryName = getCategory(categoryList, task.category).name;
   const projectName = toMap(projectList)[task.projectId]?.name ?? '';
-  return [task.title, task.location, task.detail, task.standard, task.dependency, categoryName, projectName]
+  const typedFields = [
+    task.paperFields?.chapter,
+    task.paperFields?.figure,
+    task.paperFields?.version,
+    task.paperFields?.feedback,
+    task.experimentFields?.sample,
+    task.experimentFields?.instrument,
+    task.experimentFields?.condition,
+    task.experimentFields?.waiting,
+    task.experimentFields?.reservation,
+    task.dataFields?.source,
+    task.dataFields?.notebook,
+    task.dataFields?.output,
+    task.dataFields?.reproducibility,
+    task.lifeFields?.place,
+    task.lifeFields?.people,
+    task.lifeFields?.boundary,
+    task.lifeFields?.recoveryLevel,
+  ];
+  return [task.title, task.location, task.detail, task.standard, task.dependency, categoryName, projectName, ...typedFields]
     .join(' ')
     .toLowerCase()
     .includes(normalized);
@@ -525,13 +601,17 @@ function App() {
     duration: 60,
     actualDuration: undefined,
     energy: '中',
-    location: '办公室',
+    location: needsLocation(project?.category ?? 'writing') ? '' : '',
     status: 'planned',
     standard: '',
     dependency: '',
     delayReason: '',
     notes: project ? `来自项目「${project.name}」的下一步任务。` : '',
     detail: project ? project.next : '',
+    paperFields: paperCategories.has(project?.category ?? 'writing') ? makePaperFields() : undefined,
+    experimentFields: project?.category === 'experiment' ? makeExperimentFields() : undefined,
+    dataFields: dataCategories.has(project?.category ?? 'writing') ? makeDataFields() : undefined,
+    lifeFields: lifeCategories.has(project?.category ?? 'writing') ? makeLifeFields() : undefined,
   });
 
   const startCreateTask = (project?: ProjectLane) => {
@@ -566,7 +646,7 @@ function App() {
     if (!originalTask) return;
     const needsReason = (status === 'delayed' || status === 'blocked') && !originalTask.delayReason?.trim();
     const delayReason = needsReason
-      ? window.prompt(status === 'blocked' ? '请填写阻塞原因' : '请填写延期原因')?.trim()
+      ? window.prompt(status === 'blocked' ? '请填写卡住原因' : '请填写延期原因')?.trim()
       : originalTask.delayReason;
     if (needsReason && !delayReason) return;
     const nextTask = { ...originalTask, status, delayReason };
@@ -891,7 +971,7 @@ function App() {
   };
 
   const exportCsv = () => {
-    const header = ['标题', '项目', '分类', '日期', '开始', '预计分钟', '实际分钟', '状态', '优先级', '地点', '完成标准', '依赖', '备注'];
+    const header = ['标题', '项目', '任务类型', '日期', '开始', '计划分钟', '实际分钟', '状态', '重要程度', '地点', '完成定义', '前置条件/等待事项', '备注'];
     const rows = taskList.map((task) => [
       task.title,
       currentProjectMap[task.projectId]?.name ?? task.projectId,
@@ -901,7 +981,7 @@ function App() {
       String(task.duration),
       String(task.actualDuration ?? ''),
       statusLabel[task.status],
-      String(task.priority ?? ''),
+      task.priority ? priorityLabel[task.priority] : '',
       task.location,
       task.standard,
       task.dependency,
@@ -924,7 +1004,7 @@ function App() {
       '',
       `- 任务总数：${taskList.length}`,
       `- 已完成：${done}`,
-      `- 风险任务：${risk}`,
+      `- 卡住/延期任务：${risk}`,
       `- 本周结论：${weeklyConclusion || '未填写'}`,
       `- 下周调整：${nextWeekAdjustment || '未填写'}`,
       '',
@@ -935,7 +1015,7 @@ function App() {
         return `- ${project.name}：${projectDone}/${projectTasks.length} 完成，下一步：${project.next}`;
       }),
       '',
-      '## 风险任务',
+      '## 卡住/延期任务',
       ...(riskLines.length ? riskLines : ['- 暂无']),
     ];
     downloadText(lines.join('\n'), `research-weekly-report-${appDate.today}.md`, 'text/markdown;charset=utf-8');
@@ -973,7 +1053,7 @@ function App() {
         }
         setPendingImport(validation.state);
         setPendingImportMessage(
-          `待恢复备份包含 ${validation.state.taskList.length} 个任务、${validation.state.categoryList.length} 个分类，保存于 ${new Date(
+          `待恢复备份包含 ${validation.state.taskList.length} 个任务、${validation.state.categoryList.length} 个任务类型，保存于 ${new Date(
             validation.state.savedAt,
           ).toLocaleString()}。`,
         );
@@ -1337,7 +1417,7 @@ function TopBar({
           <Search size={16} />
           <input
             aria-label="搜索任务"
-            placeholder="论文、实验、项目、地点"
+            placeholder="任务、项目、等待事项"
             ref={searchInputRef}
             value={searchQuery}
             onChange={(event) => onSearchChange(event.target.value)}
@@ -1432,14 +1512,14 @@ function BatchToolbar({
     <section className="batch-toolbar" aria-label="批量任务操作">
       <div>
         <strong>{hasSelection ? `已选择 ${selectedCount} 个任务` : `${filteredCount} 个筛选结果`}</strong>
-        <span>可批量完成、改日期、改分类或删除</span>
+        <span>可批量完成、改日期、改任务类型或删除</span>
       </div>
       <div className="batch-actions">
         <button className="secondary-action" disabled={filteredCount === 0} onClick={onSelectFiltered} type="button">
           全选结果
         </button>
         <button className="secondary-action" disabled={!hasSelection} onClick={onClearSelection} type="button">
-          清空
+          取消选择
         </button>
         <button className="secondary-action" disabled={!hasSelection} onClick={onBatchComplete} type="button">
           <CheckCircle2 size={16} />
@@ -1461,7 +1541,7 @@ function BatchToolbar({
               }
             }}
           >
-            <option value="">改分类</option>
+            <option value="">改任务类型</option>
             {categoryList.map((category) => (
               <option key={category.id} value={category.id}>
                 {category.name}
@@ -1522,7 +1602,7 @@ function TodayDashboard({
         <div className="hero-metrics">
           <Metric value={String(todayMetrics.taskCount)} label="今日任务" />
           <Metric value={String(todayMetrics.doneCount)} label="已完成" />
-          <Metric value={String(todayMetrics.riskCount)} label="风险任务" tone={todayMetrics.riskCount > 0 ? 'warn' : undefined} />
+          <Metric value={String(todayMetrics.riskCount)} label="卡住/延期" tone={todayMetrics.riskCount > 0 ? 'warn' : undefined} />
           <Metric value={String(todayMetrics.highEnergyCount)} label="高能量" />
         </div>
       </div>
@@ -1531,7 +1611,7 @@ function TodayDashboard({
         <PanelTitle icon={ListChecks} title="今日推荐顺序" />
         <div className="priority-list">
           {recommendedTasks.length === 0 ? (
-            <EmptyState title="没有匹配的今日重点" text="调整搜索或状态筛选后，这里会重新显示优先级最高的任务。" />
+            <EmptyState title="没有匹配的今日重点" text="调整搜索或状态筛选后，这里会显示今天最该先处理的任务。" />
           ) : (
             recommendedTasks.slice(0, 5).map((task, index) => (
               <div className="selectable-task" key={task.id}>
@@ -1577,8 +1657,8 @@ function TodayDashboard({
                     <div>
                       <strong>{task.title}</strong>
                       <small>
-                        {task.duration} 分钟 · {projectMap[task.projectId]?.name ?? task.projectId} · {statusLabel[task.status]} · 优先级
-                        {task.priority ?? '未设'}
+                        {task.duration} 分钟 · {projectMap[task.projectId]?.name ?? task.projectId} · {statusLabel[task.status]} · 
+                        {task.priority ? priorityLabel[task.priority] : '未设重要程度'}
                       </small>
                     </div>
                     <CategoryPill category={task.category} categoryList={categoryList} />
@@ -1617,7 +1697,7 @@ function TodayDashboard({
           <PanelTitle icon={AlertTriangle} title="近期提醒" />
           <div className="reminder-list">
             {reminders.length === 0 ? (
-              <EmptyState title="没有匹配提醒" text="风险、延期和今日任务会在这里优先出现。" />
+              <EmptyState title="没有匹配提醒" text="卡住、延期和今日任务会在这里优先出现。" />
             ) : (
               reminders.map((task) => (
                 <Reminder
@@ -1801,7 +1881,7 @@ function ProjectProgress({
     <section className="page-grid">
       <div className="span-12 lane-board">
         {visibleProjects.length === 0 && (
-          <EmptyState title="没有匹配的项目任务" text="项目页会跟随顶部搜索和状态筛选，只展示命中的项目线。" />
+          <EmptyState title="没有匹配的课题/项目" text="项目页会跟随顶部搜索和状态筛选，只展示命中的推进线。" />
         )}
         {visibleProjects.map((project) => {
           const runtime = getProjectRuntimeState(project, allTasks);
@@ -1825,23 +1905,22 @@ function ProjectProgress({
                   )}
                 </div>
               </div>
-              <div className="lane-progress">
-                <span style={{ width: `${project.progress}%` }} />
+              <div className="lane-progress" aria-label={`${project.name}近期开推进强度`}>
+                <span style={{ width: `${Math.min(100, runtime.doneCount * 18 + runtime.taskCount * 8)}%` }} />
               </div>
-              <div className="project-trend" aria-label={`${project.name}进度趋势`}>
+              <div className="project-trend" aria-label={`${project.name}推进趋势`}>
                 {runtime.progressTrend.map((value, index) => (
                   <i key={`${project.id}-${index}`} style={{ height: `${Math.max(14, value)}%` }} />
                 ))}
               </div>
               <div className="lane-grid">
-                <InfoCell label="进度" value={`${project.progress}%`} />
-                <InfoCell label="阶段" value={project.stage} />
-                <InfoCell label="截止日期" value={project.deadline} alert={runtime.status === 'risk'} />
-                <InfoCell label="任务统计" value={`${runtime.taskCount} 总 · ${runtime.doneCount} 完成 · ${runtime.riskCount} 风险`} alert={runtime.riskCount > 0} />
-                <InfoCell label="下一步" value={runtime.nextTask?.title ?? project.next} />
-                <InfoCell label="风险提示" value={runtime.blocker} alert={runtime.riskCount > 0} />
-                <InfoCell label="当前节奏" value={project.cadence} />
-                <InfoCell label="里程碑" value={`${project.milestones.filter((milestone) => milestone.done).length}/${project.milestones.length} 完成`} />
+                <InfoCell label="当前阶段" value={project.stage} />
+                <InfoCell label="下个检查点" value={project.deadline} alert={runtime.status === 'risk'} />
+                <InfoCell label="任务统计" value={`${runtime.taskCount} 总 · ${runtime.doneCount} 完成 · ${runtime.riskCount} 卡住/延期`} alert={runtime.riskCount > 0} />
+                <InfoCell label="下一步关键动作" value={runtime.nextTask?.title ?? project.next} />
+                {(runtime.blocker || project.blocker) && <InfoCell label="当前卡点" value={runtime.blocker} alert={runtime.riskCount > 0} />}
+                <InfoCell label="推进节奏" value={project.cadence} />
+                <InfoCell label="关键节点" value={`${project.milestones.filter((milestone) => milestone.done).length}/${project.milestones.length} 完成`} />
               </div>
               <div className="project-actions">
                 <button className="secondary-action" onClick={() => onSelectProject(project)} type="button">
@@ -1992,18 +2071,18 @@ function Review({
             </div>
           </div>
           <div className="span-4 panel stat-panel">
-            <Metric value={`${stats.blocked}`} label="阻塞任务" tone={stats.blocked > 0 ? 'warn' : undefined} />
+            <Metric value={`${stats.blocked}`} label="卡住任务" tone={stats.blocked > 0 ? 'warn' : undefined} />
             <Metric value={`${stats.totalHours}h`} label="总投入" />
           </div>
           <div className="span-6 panel">
-            <PanelTitle icon={CalendarCheck} title="每日复盘" />
+            <PanelTitle icon={CalendarCheck} title="当前筛选总结" />
             <div className="review-summary">
               <strong>{stats.dailySummary}</strong>
-              <span>完成 {stats.completed} 个，延期/阻塞 {stats.delayed} 个，高能量任务 {stats.energyDistribution.find((item) => item.label.startsWith('高'))?.value ?? 0} 个。</span>
+              <span>完成 {stats.completed} 个，卡住/延期 {stats.delayed} 个，高脑力任务 {stats.energyDistribution.find((item) => item.label.startsWith('高'))?.value ?? 0} 个。</span>
             </div>
           </div>
           <div className="span-6 panel">
-            <PanelTitle icon={CalendarDays} title="每周复盘" />
+            <PanelTitle icon={CalendarDays} title="本周判断" />
             <div className="review-summary">
               <strong>{stats.weeklySummary}</strong>
               <span>论文投入 {stats.writingHours}h，当前筛选任务共 {stats.taskCount} 个。</span>
@@ -2014,7 +2093,7 @@ function Review({
       {isMetricVisible('distribution') && (
         <>
           <div className="span-6 panel">
-            <PanelTitle icon={Tags} title="分类投入" />
+            <PanelTitle icon={Tags} title="任务类型投入" />
             <div className="review-bars">
               {stats.categoryDistribution.map((item) => (
                 <ReviewBar key={item.category.id} label={item.category.name} value={item.percent} meta={`${Math.round(item.minutes / 60 * 10) / 10}h`} />
@@ -2052,9 +2131,9 @@ function Review({
             </div>
           </div>
           <div className="span-6 panel">
-            <PanelTitle icon={Kanban} title="最容易阻塞的项目" />
+            <PanelTitle icon={Kanban} title="最常卡住的课题/项目" />
             <div className="insight-list">
-              {(stats.blockedByProject.length ? stats.blockedByProject : [{ label: '暂无阻塞项目', value: 0 }]).map((item) => (
+              {(stats.blockedByProject.length ? stats.blockedByProject : [{ label: '暂无卡住项目', value: 0 }]).map((item) => (
                 <InsightItem key={item.label} label={item.label} value={`${item.value} 个`} />
               ))}
             </div>
@@ -2080,16 +2159,28 @@ function Review({
         <PanelTitle icon={PenLine} title="手写复盘" />
         <div className="review-note-grid">
           <label className="review-note">
-            <span>每日复盘笔记</span>
-            <textarea value={dailyReviewNote} onChange={(event) => onDailyReviewNoteChange(event.target.value)} />
+            <span>今天发生了什么？</span>
+            <textarea
+              placeholder="记录真正推进的事、被打断的原因、需要明天接住的线索。"
+              value={dailyReviewNote}
+              onChange={(event) => onDailyReviewNoteChange(event.target.value)}
+            />
           </label>
           <label className="review-note">
             <span>本周结论</span>
-            <textarea value={weeklyConclusion} onChange={(event) => onWeeklyConclusionChange(event.target.value)} />
+            <textarea
+              placeholder="本周真正推进了什么？什么没有推进？"
+              value={weeklyConclusion}
+              onChange={(event) => onWeeklyConclusionChange(event.target.value)}
+            />
           </label>
           <label className="review-note">
             <span>下周调整</span>
-            <textarea value={nextWeekAdjustment} onChange={(event) => onNextWeekAdjustmentChange(event.target.value)} />
+            <textarea
+              placeholder="下周减少什么、保护什么、优先什么？"
+              value={nextWeekAdjustment}
+              onChange={(event) => onNextWeekAdjustmentChange(event.target.value)}
+            />
           </label>
         </div>
       </div>
@@ -2198,16 +2289,16 @@ function SettingsView({
   const [newCategoryColor, setNewCategoryColor] = useState('#3f6f8f');
   const [presetName, setPresetName] = useState('');
   const [newTemplateName, setNewTemplateName] = useState('');
-  const [newTemplateFields, setNewTemplateFields] = useState('目标、完成标准、依赖');
+  const [newTemplateFields, setNewTemplateFields] = useState('做到什么算完成、背景/操作要点、前置条件/等待事项');
   const [newProjectDraft, setNewProjectDraft] = useState({
     name: '',
     category: categoryList[0]?.id ?? 'writing',
-    stage: '计划中',
+    stage: '准备中',
     status: 'not-started' as ProjectStatus,
     deadline: appDate.today,
     progress: 0,
     next: '',
-    blocker: '暂无',
+    blocker: '',
     cadence: '每周推进',
   });
 
@@ -2223,7 +2314,7 @@ function SettingsView({
       ...newProjectDraft,
       id: '',
       milestones: [],
-      trend: [Number(newProjectDraft.progress)],
+      trend: [0],
     });
     setNewProjectDraft((current) => ({ ...current, name: '', next: '', progress: 0 }));
   };
@@ -2232,7 +2323,7 @@ function SettingsView({
     event.preventDefault();
     onAddTemplate(newTemplateName, parseDelimitedFields(newTemplateFields));
     setNewTemplateName('');
-    setNewTemplateFields('目标、完成标准、依赖');
+    setNewTemplateFields('做到什么算完成、背景/操作要点、前置条件/等待事项');
   };
 
   const submitPreset = (event: FormEvent<HTMLFormElement>) => {
@@ -2277,7 +2368,7 @@ function SettingsView({
         </div>
         <form className="inline-form" onSubmit={submitCategory}>
           <input
-            placeholder="新增类型名称"
+            placeholder="新增任务类型"
             value={newCategoryName}
             onChange={(event) => setNewCategoryName(event.target.value)}
           />
@@ -2294,7 +2385,7 @@ function SettingsView({
         </form>
       </div>
       <div className="span-7 panel">
-        <PanelTitle icon={Kanban} title="项目管理" />
+        <PanelTitle icon={Kanban} title="课题/项目线" />
         <div className="project-settings-list">
           {projectList.map((project, index) => (
             <ProjectSettingsCard
@@ -2313,7 +2404,8 @@ function SettingsView({
         </div>
         <form className="project-add-form" onSubmit={submitProject}>
           <input
-            placeholder="新增项目名称"
+            aria-label="新增课题/项目名称"
+            placeholder="新增课题/项目名称"
             value={newProjectDraft.name}
             onChange={(event) => setNewProjectDraft((current) => ({ ...current, name: event.target.value }))}
           />
@@ -2339,28 +2431,22 @@ function SettingsView({
           </select>
           <input
             type="date"
+            aria-label="下个检查点"
             value={newProjectDraft.deadline}
             onChange={(event) => setNewProjectDraft((current) => ({ ...current, deadline: event.target.value }))}
           />
           <input
-            placeholder="阶段"
+            placeholder="当前阶段/卡点"
             value={newProjectDraft.stage}
             onChange={(event) => setNewProjectDraft((current) => ({ ...current, stage: event.target.value }))}
           />
           <input
-            min={0}
-            max={100}
-            type="number"
-            value={newProjectDraft.progress}
-            onChange={(event) => setNewProjectDraft((current) => ({ ...current, progress: Number(event.target.value) }))}
-          />
-          <input
-            placeholder="下一步"
+            placeholder="下一步关键动作"
             value={newProjectDraft.next}
             onChange={(event) => setNewProjectDraft((current) => ({ ...current, next: event.target.value }))}
           />
           <input
-            placeholder="节奏"
+            placeholder="推进节奏"
             value={newProjectDraft.cadence}
             onChange={(event) => setNewProjectDraft((current) => ({ ...current, cadence: event.target.value }))}
           />
@@ -2370,7 +2456,7 @@ function SettingsView({
         </form>
       </div>
       <div className="span-12 panel">
-        <PanelTitle icon={Settings} title="字段模板" />
+        <PanelTitle icon={Settings} title="任务类型字段" />
         <div className="template-grid">
           {templateList.map((template, index) => (
             <TemplateCard
@@ -2388,7 +2474,7 @@ function SettingsView({
         </div>
         <form className="inline-form template-add-form" onSubmit={submitTemplate}>
           <input
-            placeholder="新增模板名称"
+            placeholder="新增字段组名称"
             value={newTemplateName}
             onChange={(event) => setNewTemplateName(event.target.value)}
           />
@@ -2434,7 +2520,7 @@ function SettingsView({
         </div>
         <form className="inline-form preset-save-form" onSubmit={submitPreset}>
           <input
-            placeholder="保存当前首页模块为预设"
+            placeholder="保存当前驾驶舱布局为预设"
             value={presetName}
             onChange={(event) => setPresetName(event.target.value)}
           />
@@ -2460,10 +2546,10 @@ function SettingsView({
         </div>
       </div>
       <div className="span-12 panel">
-        <PanelTitle icon={HardDrive} title="本地备份与桌面化" />
+        <PanelTitle icon={HardDrive} title="数据与备份" />
         <div className="save-status-row">
           <InfoCell
-            label="浏览器缓存"
+            label="浏览器自动保存"
             value={saveStatus === 'saving' ? '正在保存' : saveStatus === 'failed' ? '保存失败' : '已保存'}
             alert={saveStatus === 'failed'}
           />
@@ -2503,7 +2589,7 @@ function SettingsView({
               保存到硬盘
             </button>
             <button className="secondary-action" disabled={storageMode === 'browser'} onClick={onReadFromDataFolder} type="button">
-              从硬盘读取
+              从本地恢复
             </button>
             <button className="secondary-action" disabled={storageMode === 'browser'} onClick={onCreateDataFolderBackup} type="button">
               创建备份
@@ -2544,11 +2630,11 @@ function SettingsView({
               />
             </label>
             <button className="danger-action" onClick={onRestoreDefaultData} type="button">
-              恢复示例数据
+              重置为示例数据
             </button>
           </div>
           <div className="desktop-plan">
-            <InfoCell label="当前存储" value="localStorage 自动保存，刷新页面不丢数据" />
+            <InfoCell label="当前存储" value="浏览器自动保存，刷新页面不丢数据" />
             <InfoCell label="备份方式" value="JSON 全量备份，CSV 和 Markdown 用于周报归档" />
             <InfoCell label="自动备份" value="每次覆盖保存前，会保留上一份状态快照" />
           </div>
@@ -2626,32 +2712,43 @@ function ProjectSettingsCard({
       </div>
       {project.archived && <span className="archive-badge">已归档</span>}
       <div className="project-settings-grid">
-        <select value={project.category} onChange={(event) => onUpdate({ category: event.target.value })}>
+        <select aria-label="主要类型" value={project.category} onChange={(event) => onUpdate({ category: event.target.value })}>
           {categoryList.map((category) => (
             <option key={category.id} value={category.id}>
               {category.name}
             </option>
           ))}
         </select>
-        <select value={project.status} onChange={(event) => onUpdate({ status: event.target.value as ProjectStatus })}>
+        <select aria-label="项目状态" value={project.status} onChange={(event) => onUpdate({ status: event.target.value as ProjectStatus })}>
           {Object.entries(projectStatusLabel).map(([id, label]) => (
             <option key={id} value={id}>
               {label}
             </option>
           ))}
         </select>
-        <input value={project.deadline} onChange={(event) => onUpdate({ deadline: event.target.value })} type="date" />
         <input
-          max={100}
-          min={0}
-          type="number"
-          value={project.progress}
-          onChange={(event) => onUpdate({ progress: Number(event.target.value) })}
+          aria-label="下个检查点"
+          value={project.deadline}
+          onChange={(event) => onUpdate({ deadline: event.target.value })}
+          type="date"
         />
-        <input value={project.stage} onChange={(event) => onUpdate({ stage: event.target.value })} />
-        <input value={project.cadence} onChange={(event) => onUpdate({ cadence: event.target.value })} />
-        <input className="span-wide" value={project.next} onChange={(event) => onUpdate({ next: event.target.value })} />
-        <input className="span-wide" value={project.blocker} onChange={(event) => onUpdate({ blocker: event.target.value })} />
+        <input aria-label="当前阶段/卡点" value={project.stage} onChange={(event) => onUpdate({ stage: event.target.value })} />
+        <input aria-label="推进节奏" value={project.cadence} onChange={(event) => onUpdate({ cadence: event.target.value })} />
+        <input aria-label="下一步关键动作" className="span-wide" value={project.next} onChange={(event) => onUpdate({ next: event.target.value })} />
+        <input aria-label="当前卡点" className="span-wide" value={project.blocker} onChange={(event) => onUpdate({ blocker: event.target.value })} />
+        <details className="advanced-fields span-wide">
+          <summary>高级进度维护</summary>
+          <label className="field">
+            <span>手动进度百分比</span>
+            <input
+              max={100}
+              min={0}
+              type="number"
+              value={project.progress}
+              onChange={(event) => onUpdate({ progress: Number(event.target.value) })}
+            />
+          </label>
+        </details>
       </div>
     </div>
   );
@@ -2684,9 +2781,8 @@ function TaskForm({
     deadline: draftSafeDate(),
     next: '',
   });
-  const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [draft, setDraft] = useState<Task>(
-    task ?? initialTask ?? {
+    normalizeTaskForCategory(task ?? initialTask ?? {
       id: `t-${Date.now()}`,
       title: '',
       category: 'writing',
@@ -2703,7 +2799,7 @@ function TaskForm({
       delayReason: '',
       notes: '',
       detail: '',
-    },
+    }, (task ?? initialTask)?.category ?? 'writing'),
   );
 
   function draftSafeDate() {
@@ -2714,24 +2810,35 @@ function TaskForm({
     setDraft((current) => ({ ...current, [key]: value }));
   };
 
+  const updateDraftCategory = (category: CategoryId) => {
+    setDraft((current) => normalizeTaskForCategory(current, category));
+    setQuickProjectDraft((current) => ({ ...current, category }));
+  };
+
   const updateDraftProject = (projectId: string) => {
     const project = projectList.find((item) => item.id === projectId);
-    setDraft((current) => ({
+    setDraft((current) => normalizeTaskForCategory({
       ...current,
       projectId,
       category: project?.category ?? current.category,
       detail: current.detail || project?.next || '',
-    }));
+    }, project?.category ?? current.category));
   };
 
-  const applyTemplate = (templateId: string) => {
-    const template = templateList.find((item) => item.id === templateId);
-    if (!template) return;
-    const templateText = template.fields.map((field) => `${field}：`).join('\n');
-    setDraft((current) => ({
-      ...current,
-      detail: current.detail.trim() ? `${current.detail.trim()}\n${templateText}` : templateText,
-    }));
+  const updatePaperField = <K extends keyof NonNullable<Task['paperFields']>>(key: K, value: NonNullable<Task['paperFields']>[K]) => {
+    setDraft((current) => ({ ...current, paperFields: { ...makePaperFields(current), [key]: value } }));
+  };
+
+  const updateExperimentField = <K extends keyof NonNullable<Task['experimentFields']>>(key: K, value: NonNullable<Task['experimentFields']>[K]) => {
+    setDraft((current) => ({ ...current, experimentFields: { ...makeExperimentFields(current), [key]: value } }));
+  };
+
+  const updateDataField = <K extends keyof NonNullable<Task['dataFields']>>(key: K, value: NonNullable<Task['dataFields']>[K]) => {
+    setDraft((current) => ({ ...current, dataFields: { ...makeDataFields(current), [key]: value } }));
+  };
+
+  const updateLifeField = <K extends keyof NonNullable<Task['lifeFields']>>(key: K, value: NonNullable<Task['lifeFields']>[K]) => {
+    setDraft((current) => ({ ...current, lifeFields: { ...makeLifeFields(current), [key]: value } }));
   };
 
   const submitQuickProject = () => {
@@ -2749,7 +2856,7 @@ function TaskForm({
       deadline: quickProjectDraft.deadline || appDate.today,
       progress: 0,
       next: quickProjectDraft.next.trim() || '补充下一步任务',
-      blocker: '暂无',
+      blocker: '',
       cadence: '每周推进',
       milestones: [],
       trend: [0],
@@ -2793,7 +2900,7 @@ function TaskForm({
       return;
     }
     if (!Number.isFinite(duration) || duration < 15) {
-      setFormError('预计时长至少为 15 分钟。');
+      setFormError('计划时长至少为 15 分钟。');
       return;
     }
     if (actualDuration !== undefined && (!Number.isFinite(actualDuration) || actualDuration < 0)) {
@@ -2801,7 +2908,7 @@ function TaskForm({
       return;
     }
     if ((draft.status === 'delayed' || draft.status === 'blocked') && !delayReason) {
-      setFormError('延期或阻塞任务需要填写原因。');
+      setFormError('延期或卡住任务需要填写原因。');
       return;
     }
 
@@ -2812,9 +2919,18 @@ function TaskForm({
       actualDuration,
       delayReason,
       notes: draft.notes?.trim() || undefined,
-      detail: draft.detail.trim() || draft.standard.trim() || '待补充任务说明。',
+      detail: draft.detail.trim(),
     });
   };
+
+  const activeTemplate = templateList.find((template) => template.id === templateForCategory(draft.category));
+  const showActualDuration = Boolean(task) && (draft.status === 'done' || draft.actualDuration !== undefined);
+  const showDelayReason = draft.status === 'delayed' || draft.status === 'blocked';
+  const showLocation = needsLocation(draft.category) || Boolean(draft.location.trim());
+  const showPaperFields = paperCategories.has(draft.category);
+  const showExperimentFields = draft.category === 'experiment';
+  const showDataFields = dataCategories.has(draft.category);
+  const showLifeFields = lifeCategories.has(draft.category);
 
   return (
     <div className="modal-backdrop">
@@ -2830,12 +2946,12 @@ function TaskForm({
         </div>
 
         <label className="field span-2">
-          <span>标题</span>
+          <span>今天要推进什么？</span>
           <input autoFocus value={draft.title} onChange={(event) => updateDraft('title', event.target.value)} />
         </label>
         <label className="field">
-          <span>类别</span>
-          <select value={draft.category} onChange={(event) => updateDraft('category', event.target.value as CategoryId)}>
+          <span>任务类型</span>
+          <select aria-label="任务类型" value={draft.category} onChange={(event) => updateDraftCategory(event.target.value as CategoryId)}>
             {categoryList.map((category) => (
               <option key={category.id} value={category.id}>
                 {category.name}
@@ -2845,18 +2961,18 @@ function TaskForm({
         </label>
         <label className="field">
           <span className="field-label-row">
-            所属项目
+            所属课题/项目
             <button
-              aria-label="新建项目"
+              aria-label="快速新建课题/项目"
               className="inline-link-button"
               onClick={() => setShowQuickProjectForm((current) => !current)}
               type="button"
             >
               <Plus size={14} />
-              新建项目
+              新建
             </button>
           </span>
-          <select aria-label="所属项目" value={draft.projectId} onChange={(event) => updateDraftProject(event.target.value)}>
+          <select aria-label="所属课题/项目" value={draft.projectId} onChange={(event) => updateDraftProject(event.target.value)}>
             {projectList.map((project) => (
               <option key={project.id} value={project.id}>
                 {project.archived ? `${project.name}（已归档）` : project.name}
@@ -2868,7 +2984,7 @@ function TaskForm({
           <div className="quick-project-form span-2">
             <input
               aria-label="新项目名称"
-              placeholder="新项目名称"
+              placeholder="课题/项目名称"
               value={quickProjectDraft.name}
               onChange={(event) => setQuickProjectDraft((current) => ({ ...current, name: event.target.value }))}
             />
@@ -2884,7 +3000,7 @@ function TaskForm({
               ))}
             </select>
             <input
-              aria-label="新项目截止日期"
+              aria-label="新项目下个检查点"
               type="date"
               value={quickProjectDraft.deadline}
               onChange={(event) => setQuickProjectDraft((current) => ({ ...current, deadline: event.target.value }))}
@@ -2892,7 +3008,7 @@ function TaskForm({
             <input
               aria-label="新项目下一步"
               className="quick-project-next"
-              placeholder="下一步"
+              placeholder="下一步关键动作"
               value={quickProjectDraft.next}
               onChange={(event) => setQuickProjectDraft((current) => ({ ...current, next: event.target.value }))}
             />
@@ -2901,26 +3017,7 @@ function TaskForm({
             </button>
           </div>
         )}
-        {!task && (
-          <label className="field">
-            <span>套用模板</span>
-            <select
-              value={selectedTemplateId}
-              onChange={(event) => {
-                const templateId = event.target.value;
-                setSelectedTemplateId(templateId);
-                if (templateId) applyTemplate(templateId);
-              }}
-            >
-              <option value="">选择字段模板</option>
-              {templateList.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        {activeTemplate && <div className="template-hint span-2">已按“{activeTemplate.name}”显示专属字段。</div>}
         <label className="field">
           <span>日期</span>
           <input value={draft.date} onChange={(event) => updateDraft('date', event.target.value)} type="date" />
@@ -2930,7 +3027,7 @@ function TaskForm({
           <input value={draft.start} onChange={(event) => updateDraft('start', event.target.value)} type="time" />
         </label>
         <label className="field">
-          <span>预计时长</span>
+          <span>计划时长</span>
           <input
             min={15}
             step={15}
@@ -2939,38 +3036,43 @@ function TaskForm({
             onChange={(event) => updateDraft('duration', Number(event.target.value))}
           />
         </label>
+        {showActualDuration && (
+          <label className="field">
+            <span>实际用了多久？</span>
+            <input
+              aria-label="实际耗时"
+              min={0}
+              step={15}
+              type="number"
+              value={draft.actualDuration ?? ''}
+              onChange={(event) =>
+                updateDraft('actualDuration', event.target.value === '' ? undefined : Number(event.target.value))
+              }
+            />
+          </label>
+        )}
         <label className="field">
-          <span>实际耗时</span>
-          <input
-            min={0}
-            step={15}
-            type="number"
-            value={draft.actualDuration ?? ''}
-            onChange={(event) =>
-              updateDraft('actualDuration', event.target.value === '' ? undefined : Number(event.target.value))
-            }
-          />
-        </label>
-        <label className="field">
-          <span>精力等级</span>
+          <span>脑力消耗</span>
           <select value={draft.energy} onChange={(event) => updateDraft('energy', event.target.value as Task['energy'])}>
             <option value="低">低</option>
             <option value="中">中</option>
             <option value="高">高</option>
           </select>
         </label>
+        {task && (
+          <label className="field">
+            <span>状态</span>
+            <select value={draft.status} onChange={(event) => updateDraft('status', event.target.value as TaskStatus)}>
+              {taskStatuses.map((status) => (
+                <option key={status.id} value={status.id}>
+                  {status.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="field">
-          <span>状态</span>
-          <select value={draft.status} onChange={(event) => updateDraft('status', event.target.value as TaskStatus)}>
-            {taskStatuses.map((status) => (
-              <option key={status.id} value={status.id}>
-                {status.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          <span>优先级</span>
+          <span>重要程度</span>
           <select
             value={draft.priority ?? ''}
             onChange={(event) =>
@@ -2978,35 +3080,122 @@ function TaskForm({
             }
           >
             <option value="">未设置</option>
-            <option value="1">高</option>
-            <option value="2">中</option>
-            <option value="3">低</option>
+            <option value="1">今天必须</option>
+            <option value="2">尽量推进</option>
+            <option value="3">可顺延</option>
           </select>
         </label>
-        <label className="field">
-          <span>地点</span>
-          <input value={draft.location} onChange={(event) => updateDraft('location', event.target.value)} />
-        </label>
+        {showLocation && (
+          <label className="field">
+            <span>地点</span>
+            <input value={draft.location} onChange={(event) => updateDraft('location', event.target.value)} />
+          </label>
+        )}
         <label className="field span-2">
-          <span>依赖关系</span>
-          <input value={draft.dependency} onChange={(event) => updateDraft('dependency', event.target.value)} />
-        </label>
-        <label className="field span-2">
-          <span>完成标准</span>
+          <span>做到什么算完成？</span>
           <input value={draft.standard} onChange={(event) => updateDraft('standard', event.target.value)} />
         </label>
-        <label className="field span-2">
-          <span>延期/阻塞原因</span>
-          <input value={draft.delayReason ?? ''} onChange={(event) => updateDraft('delayReason', event.target.value)} />
-        </label>
-        <label className="field span-2">
-          <span>备注</span>
-          <textarea value={draft.notes ?? ''} onChange={(event) => updateDraft('notes', event.target.value)} />
-        </label>
-        <label className="field span-2">
-          <span>任务说明</span>
-          <textarea value={draft.detail} onChange={(event) => updateDraft('detail', event.target.value)} />
-        </label>
+        {showPaperFields && (
+          <>
+            <label className="field">
+              <span>章节</span>
+              <input value={draft.paperFields?.chapter ?? ''} onChange={(event) => updatePaperField('chapter', event.target.value)} />
+            </label>
+            <label className="field">
+              <span>图表</span>
+              <input value={draft.paperFields?.figure ?? ''} onChange={(event) => updatePaperField('figure', event.target.value)} />
+            </label>
+            <label className="field">
+              <span>版本</span>
+              <input value={draft.paperFields?.version ?? ''} onChange={(event) => updatePaperField('version', event.target.value)} />
+            </label>
+            <label className="field">
+              <span>共同作者反馈</span>
+              <input value={draft.paperFields?.feedback ?? ''} onChange={(event) => updatePaperField('feedback', event.target.value)} />
+            </label>
+          </>
+        )}
+        {showExperimentFields && (
+          <>
+            <label className="field">
+              <span>样品</span>
+              <input value={draft.experimentFields?.sample ?? ''} onChange={(event) => updateExperimentField('sample', event.target.value)} />
+            </label>
+            <label className="field">
+              <span>仪器</span>
+              <input value={draft.experimentFields?.instrument ?? ''} onChange={(event) => updateExperimentField('instrument', event.target.value)} />
+            </label>
+            <label className="field">
+              <span>条件</span>
+              <input value={draft.experimentFields?.condition ?? ''} onChange={(event) => updateExperimentField('condition', event.target.value)} />
+            </label>
+            <label className="field">
+              <span>预约状态</span>
+              <input value={draft.experimentFields?.reservation ?? ''} onChange={(event) => updateExperimentField('reservation', event.target.value)} />
+            </label>
+            <label className="field span-2">
+              <span>等待结果/等待事项</span>
+              <input value={draft.experimentFields?.waiting ?? ''} onChange={(event) => updateExperimentField('waiting', event.target.value)} />
+            </label>
+          </>
+        )}
+        {showDataFields && (
+          <>
+            <label className="field">
+              <span>数据来源</span>
+              <input value={draft.dataFields?.source ?? ''} onChange={(event) => updateDataField('source', event.target.value)} />
+            </label>
+            <label className="field">
+              <span>脚本/Notebook</span>
+              <input value={draft.dataFields?.notebook ?? ''} onChange={(event) => updateDataField('notebook', event.target.value)} />
+            </label>
+            <label className="field">
+              <span>输出物</span>
+              <input value={draft.dataFields?.output ?? ''} onChange={(event) => updateDataField('output', event.target.value)} />
+            </label>
+            <label className="field">
+              <span>复现状态</span>
+              <input value={draft.dataFields?.reproducibility ?? ''} onChange={(event) => updateDataField('reproducibility', event.target.value)} />
+            </label>
+          </>
+        )}
+        {showLifeFields && (
+          <>
+            <label className="field">
+              <span>对象/场景</span>
+              <input value={draft.lifeFields?.people ?? ''} onChange={(event) => updateLifeField('people', event.target.value)} />
+            </label>
+            <label className="field">
+              <span>恢复等级</span>
+              <input value={draft.lifeFields?.recoveryLevel ?? ''} onChange={(event) => updateLifeField('recoveryLevel', event.target.value)} />
+            </label>
+            <label className="field span-2">
+              <span>边界说明</span>
+              <input value={draft.lifeFields?.boundary ?? ''} onChange={(event) => updateLifeField('boundary', event.target.value)} />
+            </label>
+          </>
+        )}
+        {showDelayReason && (
+          <label className="field span-2">
+            <span>{draft.status === 'blocked' ? '卡住原因' : '延期原因'}</span>
+            <input value={draft.delayReason ?? ''} onChange={(event) => updateDraft('delayReason', event.target.value)} />
+          </label>
+        )}
+        <details className="advanced-fields span-2">
+          <summary>高级记录</summary>
+          <label className="field span-2">
+            <span>前置条件/等待事项</span>
+            <input value={draft.dependency} onChange={(event) => updateDraft('dependency', event.target.value)} />
+          </label>
+          <label className="field span-2">
+            <span>补充记录</span>
+            <textarea value={draft.notes ?? ''} onChange={(event) => updateDraft('notes', event.target.value)} />
+          </label>
+          <label className="field span-2">
+            <span>背景/操作要点</span>
+            <textarea value={draft.detail} onChange={(event) => updateDraft('detail', event.target.value)} />
+          </label>
+        </details>
 
         {formError && (
           <div className="form-error" role="alert">
@@ -3018,7 +3207,7 @@ function TaskForm({
             取消
           </button>
           <button className="primary-action" type="submit">
-            保存任务
+            {task ? '保存任务' : '加入日程'}
           </button>
         </div>
       </form>
@@ -3055,17 +3244,17 @@ function TaskDrawer({
       </button>
       <CategoryPill category={task.category} categoryList={categoryList} />
       <h2>{task.title}</h2>
-      <p>{task.detail}</p>
+      {task.detail && <p>{task.detail}</p>}
       <div className="drawer-actions">
         <button onClick={onClose} type="button">
-          退出详情
+          关闭
         </button>
         <button onClick={() => onEdit(task)} type="button">
           编辑
         </button>
         <button onClick={() => onDuplicate(task)} type="button">
           <Copy size={15} />
-          复制
+          复制到新任务
         </button>
         {task.status === 'done' ? (
           <button onClick={() => onStatusChange(task.id, 'active')} type="button">
@@ -3095,26 +3284,50 @@ function TaskDrawer({
           </button>
         ))}
       </div>
-      <div className="drawer-actions">
-        <button onClick={() => onStatusChange(task.id, 'delayed')} type="button">
-          延期
-        </button>
-        <button onClick={() => onStatusChange(task.id, 'cancelled')} type="button">
-          取消
-        </button>
-      </div>
       <div className="drawer-grid">
-        <InfoCell label="所属项目" value={projectMap[task.projectId]?.name ?? task.projectId} />
+        <InfoCell label="所属课题/项目" value={projectMap[task.projectId]?.name ?? task.projectId} />
         <InfoCell label="任务状态" value={statusLabel[task.status]} alert={task.status === 'blocked' || task.status === 'delayed'} />
-        <InfoCell label="预计时长" value={`${task.duration} 分钟`} />
-        <InfoCell label="实际耗时" value={task.actualDuration ? `${task.actualDuration} 分钟` : '未记录'} />
-        <InfoCell label="精力等级" value={task.energy} />
-        <InfoCell label="地点" value={task.location} />
-        <InfoCell label="截止时间" value={`${task.date} ${task.start}`} />
-        <InfoCell label="依赖关系" value={task.dependency} />
-        <InfoCell label="完成标准" value={task.standard} />
-        <InfoCell label="延期/阻塞原因" value={task.delayReason ?? '无'} alert={Boolean(task.delayReason)} />
-        <InfoCell label="备注" value={task.notes ?? '无'} />
+        <InfoCell label="计划时长" value={`${task.duration} 分钟`} />
+        <InfoCell label="实际耗时" value={task.actualDuration ? `${task.actualDuration} 分钟` : '完成后记录'} />
+        <InfoCell label="脑力消耗" value={task.energy} />
+        {task.location && <InfoCell label="地点" value={task.location} />}
+        <InfoCell label="安排时间" value={`${task.date} ${task.start}`} />
+        {task.dependency && <InfoCell label="前置条件/等待事项" value={task.dependency} />}
+        <InfoCell label="完成定义" value={task.standard || '未设置'} />
+        {task.delayReason && <InfoCell label={task.status === 'blocked' ? '卡住原因' : '延期原因'} value={task.delayReason} alert />}
+        {task.paperFields && (
+          <>
+            <InfoCell label="章节" value={task.paperFields.chapter || '未设置'} />
+            <InfoCell label="图表" value={task.paperFields.figure || '未设置'} />
+            <InfoCell label="版本" value={task.paperFields.version || '未设置'} />
+            <InfoCell label="共同作者反馈" value={task.paperFields.feedback || '未设置'} alert={Boolean(task.paperFields.feedback)} />
+          </>
+        )}
+        {task.experimentFields && (
+          <>
+            <InfoCell label="样品" value={task.experimentFields.sample || '未设置'} />
+            <InfoCell label="仪器" value={task.experimentFields.instrument || '未设置'} />
+            <InfoCell label="条件" value={task.experimentFields.condition || '未设置'} />
+            <InfoCell label="预约状态" value={task.experimentFields.reservation || '未设置'} />
+            <InfoCell label="等待事项" value={task.experimentFields.waiting || '未设置'} alert={Boolean(task.experimentFields.waiting)} />
+          </>
+        )}
+        {task.dataFields && (
+          <>
+            <InfoCell label="数据来源" value={task.dataFields.source || '未设置'} />
+            <InfoCell label="脚本/Notebook" value={task.dataFields.notebook || '未设置'} />
+            <InfoCell label="输出物" value={task.dataFields.output || '未设置'} />
+            <InfoCell label="复现状态" value={task.dataFields.reproducibility || '未设置'} />
+          </>
+        )}
+        {task.lifeFields && (
+          <>
+            <InfoCell label="对象/场景" value={task.lifeFields.people || '未设置'} />
+            <InfoCell label="恢复等级" value={task.lifeFields.recoveryLevel || '未设置'} />
+            <InfoCell label="边界说明" value={task.lifeFields.boundary || '未设置'} />
+          </>
+        )}
+        {task.notes && <InfoCell label="补充记录" value={task.notes} />}
       </div>
       </aside>
     </div>
@@ -3154,7 +3367,7 @@ function ProjectDrawer({
       <p>{project.stage}</p>
       <div className="drawer-actions">
         <button onClick={onClose} type="button">
-          退出详情
+          关闭
         </button>
         <button className="primary-action" onClick={() => onCreateTask(project)} type="button">
           <Plus size={16} />
@@ -3175,16 +3388,16 @@ function ProjectDrawer({
       </div>
       <div className="drawer-grid">
         <InfoCell label="项目状态" value={projectStatusLabel[runtime.status as ProjectStatus]} alert={runtime.status === 'risk'} />
-        <InfoCell label="截止日期" value={project.deadline} />
+        <InfoCell label="下个检查点" value={project.deadline} />
         <InfoCell label="当前阶段" value={project.stage} />
         <InfoCell label="下一个关键动作" value={runtime.nextTask?.title ?? project.next} />
         <InfoCell label="总任务" value={`${runtime.taskCount} 个`} />
         <InfoCell label="已完成" value={`${runtime.doneCount} 个`} />
         <InfoCell label="延期" value={`${runtime.delayedCount} 个`} alert={runtime.delayedCount > 0} />
-        <InfoCell label="阻塞" value={`${runtime.blockedCount} 个`} alert={runtime.blockedCount > 0} />
+        <InfoCell label="卡住" value={`${runtime.blockedCount} 个`} alert={runtime.blockedCount > 0} />
       </div>
       <div className="project-detail-section">
-        <PanelTitle icon={CalendarCheck} title="里程碑" />
+        <PanelTitle icon={CalendarCheck} title="关键节点" />
         <div className="milestone-list">
           {project.milestones.map((milestone) => (
             <div className={milestone.done ? 'milestone is-done' : 'milestone'} key={milestone.id}>
@@ -3196,21 +3409,23 @@ function ProjectDrawer({
         </div>
       </div>
       <div className="project-detail-section">
-        <PanelTitle icon={BarChart3} title="进度趋势" />
+        <PanelTitle icon={BarChart3} title="推进趋势" />
         <div className="project-trend project-trend-large">
           {runtime.progressTrend.map((value, index) => (
             <i key={`${project.id}-drawer-${index}`} style={{ height: `${Math.max(14, value)}%` }} />
           ))}
         </div>
       </div>
-      <div className="project-detail-section">
-        <PanelTitle icon={AlertTriangle} title="项目风险" />
-        <div className="risk-list">
-          {runtime.riskTips.map((tip) => (
-            <span key={tip}>{tip}</span>
-          ))}
+      {runtime.riskTips.length > 0 && (
+        <div className="project-detail-section">
+          <PanelTitle icon={AlertTriangle} title="当前卡点" />
+          <div className="risk-list">
+            {runtime.riskTips.map((tip) => (
+              <span key={tip}>{tip}</span>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
       <div className="project-detail-section">
         <PanelTitle icon={ListChecks} title="项目任务" />
         <div className="compact-task-list">
@@ -3335,7 +3550,7 @@ function WeeklyLoadCard({
         <span>{detail.taskCount} 任务</span>
         <span>{detail.doneCount} 完成</span>
         <span>{detail.highEnergyCount} 高能量</span>
-        <span>{detail.riskCount} 风险</span>
+        <span>{detail.riskCount} 卡住/延期</span>
       </div>
       <small>{detail.warnings.length ? detail.warnings.join(' / ') : `${Math.round(detail.minutes / 60 * 10) / 10}h 可控`}</small>
     </div>

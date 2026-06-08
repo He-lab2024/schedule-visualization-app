@@ -1561,6 +1561,10 @@ select:disabled {
   grid-column: span 2;
 }
 
+.project-settings-grid details.span-wide {
+  grid-column: 1 / -1;
+}
+
 .project-settings-card input,
 .project-settings-card select,
 .project-add-form input,
@@ -2063,6 +2067,37 @@ select:disabled {
 .field textarea {
   min-height: 88px;
   resize: vertical;
+}
+
+.template-hint {
+  min-height: 34px;
+  padding: 9px 11px;
+  border: 1px solid #d8dde6;
+  border-radius: 8px;
+  color: #465264;
+  background: #f8fafc;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.advanced-fields {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e0e5ef;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.advanced-fields summary {
+  cursor: pointer;
+  color: #465264;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.advanced-fields[open] {
+  align-items: start;
 }
 
 .quick-project-form {
