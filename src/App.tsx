@@ -81,7 +81,7 @@ const accentStyle = (categoryList: Category[], categoryId: CategoryId) => {
 const makeSoftColor = (hex: string) => `${hex}1a`;
 
 type PersistedState = {
-  version: 1;
+  version: number;
   taskList: Task[];
   categoryList: Category[];
   widgetList: Widget[];
@@ -93,9 +93,13 @@ type PersistedState = {
   savedAt: string;
 };
 
+type SaveStatus = 'saving' | 'saved' | 'failed';
 type TaskFilter = 'all' | 'active' | 'risk' | 'done';
 
 const storageKey = 'research-schedule-dashboard-state-v1';
+const autoBackupKey = `${storageKey}-auto-backup`;
+const manualBackupKey = `${storageKey}-manual-backup`;
+const storageVersion = 2;
 
 const taskStatuses: Array<{ id: TaskStatus; label: string }> = [
   { id: 'planned', label: '已计划' },
@@ -122,7 +126,7 @@ const projectStatusLabel: Record<ProjectStatus, string> = {
 };
 
 const defaultPersistedState = (): PersistedState => ({
-  version: 1,
+  version: storageVersion,
   taskList: initialTasks,
   categoryList: categories,
   widgetList: widgets,
@@ -134,29 +138,84 @@ const defaultPersistedState = (): PersistedState => ({
   savedAt: new Date().toISOString(),
 });
 
-const loadPersistedState = (): PersistedState => {
-  if (typeof window === 'undefined') return defaultPersistedState();
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const isTask = (value: unknown): value is Task => {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === 'string' &&
+    typeof value.title === 'string' &&
+    typeof value.category === 'string' &&
+    typeof value.projectId === 'string' &&
+    typeof value.date === 'string' &&
+    typeof value.start === 'string' &&
+    typeof value.duration === 'number' &&
+    typeof value.energy === 'string' &&
+    typeof value.location === 'string' &&
+    typeof value.status === 'string' &&
+    typeof value.standard === 'string' &&
+    typeof value.dependency === 'string' &&
+    typeof value.detail === 'string'
+  );
+};
+
+const validatePersistedState = (value: unknown): { ok: true; state: PersistedState } | { ok: false; message: string } => {
+  if (!isRecord(value)) return { ok: false, message: '备份文件不是有效对象。' };
+  const fallback = defaultPersistedState();
+  const taskList = Array.isArray(value.taskList) ? value.taskList : null;
+  const categoryList = Array.isArray(value.categoryList) ? value.categoryList : null;
+  const widgetList = Array.isArray(value.widgetList) ? value.widgetList : null;
+  const templateList = Array.isArray(value.templateList) ? value.templateList : null;
+
+  if (!taskList || !taskList.every(isTask)) return { ok: false, message: '任务列表结构无效。' };
+  if (!categoryList || !categoryList.every((item) => isRecord(item) && typeof item.id === 'string' && typeof item.name === 'string')) {
+    return { ok: false, message: '分类列表结构无效。' };
+  }
+  if (!widgetList || !templateList) return { ok: false, message: '设置或模板结构无效。' };
+
+  return {
+    ok: true,
+    state: {
+      ...fallback,
+      ...value,
+      version: storageVersion,
+      taskList: taskList as Task[],
+      categoryList: categoryList as Category[],
+      widgetList: widgetList as Widget[],
+      templateList: templateList as FieldTemplate[],
+      activePresetId: typeof value.activePresetId === 'string' ? value.activePresetId : fallback.activePresetId,
+      dailyReviewNote: typeof value.dailyReviewNote === 'string' ? value.dailyReviewNote : '',
+      weeklyConclusion: typeof value.weeklyConclusion === 'string' ? value.weeklyConclusion : '',
+      nextWeekAdjustment: typeof value.nextWeekAdjustment === 'string' ? value.nextWeekAdjustment : '',
+      savedAt: typeof value.savedAt === 'string' ? value.savedAt : new Date().toISOString(),
+    },
+  };
+};
+
+const loadPersistedState = (): { state: PersistedState; warning: string } => {
+  if (typeof window === 'undefined') return { state: defaultPersistedState(), warning: '' };
   const raw = window.localStorage.getItem(storageKey);
-  if (!raw) return defaultPersistedState();
+  if (!raw) return { state: defaultPersistedState(), warning: '' };
 
   try {
-    const parsed = JSON.parse(raw) as Partial<PersistedState>;
-    return {
-      ...defaultPersistedState(),
-      ...parsed,
-      taskList: Array.isArray(parsed.taskList) ? parsed.taskList : initialTasks,
-      categoryList: Array.isArray(parsed.categoryList) ? parsed.categoryList : categories,
-      widgetList: Array.isArray(parsed.widgetList) ? parsed.widgetList : widgets,
-      templateList: Array.isArray(parsed.templateList) ? parsed.templateList : fieldTemplates,
-      activePresetId: parsed.activePresetId ?? viewPresets[0].id,
-      dailyReviewNote: parsed.dailyReviewNote ?? '',
-      weeklyConclusion: parsed.weeklyConclusion ?? '',
-      nextWeekAdjustment: parsed.nextWeekAdjustment ?? '',
-      version: 1,
-    };
+    const parsed = JSON.parse(raw) as unknown;
+    const validation = validatePersistedState(parsed);
+    if (validation.ok) return { state: validation.state, warning: '' };
+    return { state: defaultPersistedState(), warning: `本地数据结构异常，已回退示例数据：${validation.message}` };
   } catch {
-    return defaultPersistedState();
+    return { state: defaultPersistedState(), warning: '本地数据损坏，已回退示例数据。' };
   }
+};
+
+const downloadText = (content: string, filename: string, type: string) => {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 };
 
 const matchesTaskFilter = (task: Task, filter: TaskFilter) => {
@@ -232,7 +291,8 @@ function AppShell({
 }
 
 function App() {
-  const [initialState] = useState<PersistedState>(() => loadPersistedState());
+  const [initialLoad] = useState(() => loadPersistedState());
+  const initialState = initialLoad.state;
   const [activeView, setActiveView] = useState<ViewId>('today');
   const [taskList, setTaskList] = useState<Task[]>(initialState.taskList);
   const [categoryList, setCategoryList] = useState<Category[]>(initialState.categoryList);
@@ -242,6 +302,11 @@ function App() {
   const [dailyReviewNote, setDailyReviewNote] = useState(initialState.dailyReviewNote);
   const [weeklyConclusion, setWeeklyConclusion] = useState(initialState.weeklyConclusion);
   const [nextWeekAdjustment, setNextWeekAdjustment] = useState(initialState.nextWeekAdjustment);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  const [lastSavedAt, setLastSavedAt] = useState(initialState.savedAt);
+  const [dataMessage, setDataMessage] = useState(initialLoad.warning);
+  const [pendingImport, setPendingImport] = useState<PersistedState | null>(null);
+  const [pendingImportMessage, setPendingImportMessage] = useState('');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedProject, setSelectedProject] = useState<ProjectLane | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -268,20 +333,33 @@ function App() {
     });
   }, [taskList]);
 
+  const makeCurrentState = (): PersistedState => ({
+    version: storageVersion,
+    taskList,
+    categoryList,
+    widgetList,
+    templateList,
+    activePresetId,
+    dailyReviewNote,
+    weeklyConclusion,
+    nextWeekAdjustment,
+    savedAt: new Date().toISOString(),
+  });
+
   useEffect(() => {
-    const state: PersistedState = {
-      version: 1,
-      taskList,
-      categoryList,
-      widgetList,
-      templateList,
-      activePresetId,
-      dailyReviewNote,
-      weeklyConclusion,
-      nextWeekAdjustment,
-      savedAt: new Date().toISOString(),
-    };
-    window.localStorage.setItem(storageKey, JSON.stringify(state));
+    const state = makeCurrentState();
+    setSaveStatus('saving');
+    try {
+      const previous = window.localStorage.getItem(storageKey);
+      if (previous) window.localStorage.setItem(autoBackupKey, previous);
+      window.localStorage.setItem(storageKey, JSON.stringify(state));
+      setLastSavedAt(state.savedAt);
+      setSaveStatus('saved');
+      if (dataMessage.startsWith('保存失败')) setDataMessage('');
+    } catch {
+      setSaveStatus('failed');
+      setDataMessage('保存失败：浏览器存储空间可能不足，请先导出 JSON 备份。');
+    }
   }, [activePresetId, categoryList, dailyReviewNote, nextWeekAdjustment, taskList, templateList, weeklyConclusion, widgetList]);
 
   const upsertTask = (task: Task) => {
@@ -457,46 +535,118 @@ function App() {
   };
 
   const exportData = () => {
-    const state: PersistedState = {
-      version: 1,
-      taskList,
-      categoryList,
-      widgetList,
-      templateList,
-      activePresetId,
-      dailyReviewNote,
-      weeklyConclusion,
-      nextWeekAdjustment,
-      savedAt: new Date().toISOString(),
-    };
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `research-schedule-backup-${appDate.today}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadText(
+      JSON.stringify({ ...makeCurrentState(), version: storageVersion }, null, 2),
+      `research-schedule-backup-${appDate.today}.json`,
+      'application/json',
+    );
+  };
+
+  const exportCsv = () => {
+    const header = ['标题', '项目', '分类', '日期', '开始', '预计分钟', '实际分钟', '状态', '优先级', '地点', '完成标准', '依赖', '备注'];
+    const rows = taskList.map((task) => [
+      task.title,
+      projectMap[task.projectId]?.name ?? task.projectId,
+      getCategory(categoryList, task.category).name,
+      task.date,
+      task.start,
+      String(task.duration),
+      String(task.actualDuration ?? ''),
+      statusLabel[task.status],
+      String(task.priority ?? ''),
+      task.location,
+      task.standard,
+      task.dependency,
+      task.notes ?? '',
+    ]);
+    const csv = [header, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    downloadText(csv, `research-schedule-tasks-${appDate.today}.csv`, 'text/csv;charset=utf-8');
+  };
+
+  const exportMarkdownReport = () => {
+    const done = taskList.filter((task) => task.status === 'done').length;
+    const risk = taskList.filter((task) => task.status === 'blocked' || task.status === 'delayed').length;
+    const riskLines = taskList
+      .filter((task) => task.status === 'blocked' || task.status === 'delayed')
+      .map((task) => `- ${task.title}（${statusLabel[task.status]}）：${task.delayReason ?? task.dependency}`);
+    const lines = [
+      `# ${appDate.weekLabel} 科研周报`,
+      '',
+      `- 任务总数：${taskList.length}`,
+      `- 已完成：${done}`,
+      `- 风险任务：${risk}`,
+      `- 本周结论：${weeklyConclusion || '未填写'}`,
+      `- 下周调整：${nextWeekAdjustment || '未填写'}`,
+      '',
+      '## 项目进展',
+      ...projects.map((project) => {
+        const projectTasks = taskList.filter((task) => task.projectId === project.id);
+        const projectDone = projectTasks.filter((task) => task.status === 'done').length;
+        return `- ${project.name}：${projectDone}/${projectTasks.length} 完成，下一步：${project.next}`;
+      }),
+      '',
+      '## 风险任务',
+      ...(riskLines.length ? riskLines : ['- 暂无']),
+    ];
+    downloadText(lines.join('\n'), `research-weekly-report-${appDate.today}.md`, 'text/markdown;charset=utf-8');
+  };
+
+  const manualBackup = () => {
+    try {
+      const state = { ...makeCurrentState(), version: storageVersion };
+      window.localStorage.setItem(manualBackupKey, JSON.stringify(state));
+      setDataMessage(`手动备份已保存：${new Date(state.savedAt).toLocaleString()}`);
+    } catch {
+      setDataMessage('手动备份失败：浏览器存储空间可能不足。');
+    }
   };
 
   const importData = (file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const parsed = JSON.parse(String(reader.result)) as Partial<PersistedState>;
-        setTaskList(Array.isArray(parsed.taskList) ? parsed.taskList : initialTasks);
-        setCategoryList(Array.isArray(parsed.categoryList) ? parsed.categoryList : categories);
-        setWidgetList(Array.isArray(parsed.widgetList) ? parsed.widgetList : widgets);
-        setTemplateList(Array.isArray(parsed.templateList) ? parsed.templateList : fieldTemplates);
-        setActivePresetId(parsed.activePresetId ?? viewPresets[0].id);
-        setDailyReviewNote(parsed.dailyReviewNote ?? '');
-        setWeeklyConclusion(parsed.weeklyConclusion ?? '');
-        setNextWeekAdjustment(parsed.nextWeekAdjustment ?? '');
-        setSelectedTask(null);
+        const parsed = JSON.parse(String(reader.result)) as unknown;
+        const validation = validatePersistedState(parsed);
+        if (!validation.ok) {
+          setDataMessage(`导入失败：${validation.message}`);
+          return;
+        }
+        setPendingImport(validation.state);
+        setPendingImportMessage(
+          `待恢复备份包含 ${validation.state.taskList.length} 个任务、${validation.state.categoryList.length} 个分类，保存于 ${new Date(
+            validation.state.savedAt,
+          ).toLocaleString()}。`,
+        );
       } catch {
-        window.alert('导入失败：JSON 结构无法识别。');
+        setDataMessage('导入失败：JSON 结构无法识别。');
       }
     };
     reader.readAsText(file);
+  };
+
+  const applyImportedData = (state: PersistedState) => {
+    setTaskList(state.taskList);
+    setCategoryList(state.categoryList);
+    setWidgetList(state.widgetList);
+    setTemplateList(state.templateList);
+    setActivePresetId(state.activePresetId);
+    setDailyReviewNote(state.dailyReviewNote);
+    setWeeklyConclusion(state.weeklyConclusion);
+    setNextWeekAdjustment(state.nextWeekAdjustment);
+    setSelectedTask(null);
+    setSelectedProject(null);
+    setPendingImport(null);
+    setPendingImportMessage('');
+    setDataMessage('备份已恢复。');
+  };
+
+  const restoreDefaultData = () => {
+    if (!window.confirm('确认恢复默认示例数据？当前任务和设置会被示例数据替换。')) return;
+    const state = defaultPersistedState();
+    applyImportedData(state);
+    setDataMessage('已恢复默认示例数据。');
   };
 
   return (
@@ -582,10 +732,24 @@ function App() {
           categoryList={categoryList}
           templateList={templateList}
           widgetList={widgetList}
+          dataMessage={dataMessage}
+          lastSavedAt={lastSavedAt}
+          pendingImport={pendingImport}
+          pendingImportMessage={pendingImportMessage}
+          saveStatus={saveStatus}
           onAddCategory={addCategory}
+          onCancelImport={() => {
+            setPendingImport(null);
+            setPendingImportMessage('');
+          }}
+          onConfirmImport={applyImportedData}
           onApplyPreset={applyPreset}
+          onExportCsv={exportCsv}
           onExportData={exportData}
+          onExportMarkdownReport={exportMarkdownReport}
           onImportData={importData}
+          onManualBackup={manualBackup}
+          onRestoreDefaultData={restoreDefaultData}
           onToggleWidget={toggleWidget}
           onUpdateCategoryColor={updateCategoryColor}
           onUpdateTemplateFields={updateTemplateFields}
@@ -1335,10 +1499,21 @@ function SettingsView({
   categoryList,
   templateList,
   widgetList,
+  dataMessage,
+  lastSavedAt,
+  pendingImport,
+  pendingImportMessage,
+  saveStatus,
   onAddCategory,
   onApplyPreset,
+  onCancelImport,
+  onConfirmImport,
+  onExportCsv,
   onExportData,
+  onExportMarkdownReport,
   onImportData,
+  onManualBackup,
+  onRestoreDefaultData,
   onToggleWidget,
   onUpdateCategoryColor,
   onUpdateTemplateFields,
@@ -1347,10 +1522,21 @@ function SettingsView({
   categoryList: Category[];
   templateList: FieldTemplate[];
   widgetList: Widget[];
+  dataMessage: string;
+  lastSavedAt: string;
+  pendingImport: PersistedState | null;
+  pendingImportMessage: string;
+  saveStatus: SaveStatus;
   onAddCategory: (name: string, color: string) => void;
   onApplyPreset: (preset: ViewPreset) => void;
+  onCancelImport: () => void;
+  onConfirmImport: (state: PersistedState) => void;
+  onExportCsv: () => void;
   onExportData: () => void;
+  onExportMarkdownReport: () => void;
   onImportData: (file: File) => void;
+  onManualBackup: () => void;
+  onRestoreDefaultData: () => void;
   onToggleWidget: (widgetId: string) => void;
   onUpdateCategoryColor: (categoryId: string, color: string) => void;
   onUpdateTemplateFields: (templateId: string, fields: string[]) => void;
@@ -1439,11 +1625,32 @@ function SettingsView({
       </div>
       <div className="span-12 panel">
         <PanelTitle icon={HardDrive} title="本地备份与桌面化" />
+        <div className="save-status-row">
+          <InfoCell
+            label="保存状态"
+            value={saveStatus === 'saving' ? '正在保存' : saveStatus === 'failed' ? '保存失败' : '已保存'}
+            alert={saveStatus === 'failed'}
+          />
+          <InfoCell label="最近保存" value={lastSavedAt ? new Date(lastSavedAt).toLocaleString() : '未保存'} />
+          <InfoCell label="存储版本" value={`v${storageVersion}`} />
+        </div>
+        {dataMessage && <div className="data-message">{dataMessage}</div>}
         <div className="backup-grid">
           <div className="backup-actions">
             <button className="primary-action" onClick={onExportData} type="button">
               <Download size={16} />
               <span>导出 JSON</span>
+            </button>
+            <button className="secondary-action" onClick={onExportCsv} type="button">
+              <Download size={16} />
+              <span>导出 CSV</span>
+            </button>
+            <button className="secondary-action" onClick={onExportMarkdownReport} type="button">
+              <Download size={16} />
+              <span>导出周报</span>
+            </button>
+            <button className="secondary-action" onClick={onManualBackup} type="button">
+              手动备份
             </button>
             <label className="secondary-action import-button">
               <Upload size={16} />
@@ -1458,13 +1665,30 @@ function SettingsView({
                 }}
               />
             </label>
+            <button className="danger-action" onClick={onRestoreDefaultData} type="button">
+              恢复示例数据
+            </button>
           </div>
           <div className="desktop-plan">
             <InfoCell label="当前存储" value="localStorage 自动保存，刷新页面不丢数据" />
-            <InfoCell label="备份方式" value="导出/导入同一份 JSON 状态" />
-            <InfoCell label="桌面方案" value="优先 Tauri：体积小、离线友好；Electron 作为兼容备选" />
+            <InfoCell label="备份方式" value="JSON 全量备份，CSV 和 Markdown 用于周报归档" />
+            <InfoCell label="自动备份" value="每次覆盖保存前，会保留上一份状态快照" />
           </div>
         </div>
+        {pendingImport && (
+          <div className="restore-preview">
+            <strong>恢复前预览</strong>
+            <span>{pendingImportMessage}</span>
+            <div>
+              <button className="primary-action" onClick={() => onConfirmImport(pendingImport)} type="button">
+                确认恢复
+              </button>
+              <button className="secondary-action" onClick={onCancelImport} type="button">
+                取消
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );

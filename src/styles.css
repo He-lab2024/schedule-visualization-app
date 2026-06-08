@@ -1499,6 +1499,42 @@ select:disabled {
   align-items: start;
 }
 
+.save-status-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.data-message,
+.restore-preview {
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid #d8dde6;
+  border-radius: 8px;
+  color: #465264;
+  background: #f8fafc;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.restore-preview {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 0;
+}
+
+.restore-preview strong,
+.restore-preview span {
+  display: block;
+}
+
+.restore-preview div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .backup-actions {
   display: grid;
   gap: 10px;
@@ -1899,6 +1935,7 @@ select:disabled {
   .drawer-grid,
   .task-form,
   .backup-grid,
+  .save-status-row,
   .desktop-plan,
   .suggestion-grid,
   .template-grid,
