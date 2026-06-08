@@ -1177,7 +1177,9 @@ function App() {
           allTasks={filteredTasks}
           categoryList={categoryList}
           projectList={projectList}
+          onArchiveProject={archiveProject}
           onCreateProjectTask={startCreateTask}
+          onDeleteProject={deleteProject}
           onSelectProject={setSelectedProject}
         />
       )}
@@ -1273,8 +1275,10 @@ function App() {
         categoryList={categoryList}
         project={selectedProject}
         taskList={filteredTasks}
+        onArchive={archiveProject}
         onClose={() => setSelectedProject(null)}
         onCreateTask={startCreateTask}
+        onDelete={deleteProject}
       />
       {(editingTask || isCreatingTask) && (
         <TaskForm
@@ -1778,13 +1782,17 @@ function ProjectProgress({
   allTasks,
   categoryList,
   projectList,
+  onArchiveProject,
   onCreateProjectTask,
+  onDeleteProject,
   onSelectProject,
 }: {
   allTasks: Task[];
   categoryList: Category[];
   projectList: ProjectLane[];
+  onArchiveProject: (projectId: string) => void;
   onCreateProjectTask: (project: ProjectLane) => void;
+  onDeleteProject: (projectId: string) => void;
   onSelectProject: (project: ProjectLane) => void;
 }) {
   const visibleProjects = projectList.filter((project) => !project.archived);
@@ -1830,6 +1838,18 @@ function ProjectProgress({
                   <Plus size={16} />
                   <span>新建任务</span>
                 </button>
+                {project.id !== unassignedProjectId && (
+                  <>
+                    <button className="secondary-action" onClick={() => onArchiveProject(project.id)} type="button">
+                      <RotateCcw size={16} />
+                      <span>归档</span>
+                    </button>
+                    <button className="danger-action" onClick={() => onDeleteProject(project.id)} type="button">
+                      <Trash2 size={16} />
+                      <span>删除项目</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           );
@@ -3025,14 +3045,18 @@ function TaskDrawer({
   if (!task) return null;
 
   return (
-    <aside className="task-drawer">
-      <button className="drawer-close" onClick={onClose} type="button">
+    <div className="drawer-backdrop" onClick={onClose} role="presentation">
+      <aside className="task-drawer" onClick={(event) => event.stopPropagation()}>
+      <button aria-label="关闭详情面板" className="drawer-close" onClick={onClose} type="button">
         ×
       </button>
       <CategoryPill category={task.category} categoryList={categoryList} />
       <h2>{task.title}</h2>
       <p>{task.detail}</p>
       <div className="drawer-actions">
+        <button onClick={onClose} type="button">
+          退出详情
+        </button>
         <button onClick={() => onEdit(task)} type="button">
           编辑
         </button>
@@ -3089,7 +3113,8 @@ function TaskDrawer({
         <InfoCell label="延期/阻塞原因" value={task.delayReason ?? '无'} alert={Boolean(task.delayReason)} />
         <InfoCell label="备注" value={task.notes ?? '无'} />
       </div>
-    </aside>
+      </aside>
+    </div>
   );
 }
 
@@ -3097,14 +3122,18 @@ function ProjectDrawer({
   categoryList,
   project,
   taskList,
+  onArchive,
   onClose,
   onCreateTask,
+  onDelete,
 }: {
   categoryList: Category[];
   project: ProjectLane | null;
   taskList: Task[];
+  onArchive: (projectId: string) => void;
   onClose: () => void;
   onCreateTask: (project: ProjectLane) => void;
+  onDelete: (projectId: string) => void;
 }) {
   if (!project) return null;
 
@@ -3112,18 +3141,34 @@ function ProjectDrawer({
   const projectTasks = getTasksForProject(taskList, project.id);
 
   return (
-    <aside className="task-drawer project-drawer">
-      <button className="drawer-close" onClick={onClose} type="button">
+    <div className="drawer-backdrop" onClick={onClose} role="presentation">
+      <aside className="task-drawer project-drawer" onClick={(event) => event.stopPropagation()}>
+      <button aria-label="关闭详情面板" className="drawer-close" onClick={onClose} type="button">
         ×
       </button>
       <CategoryPill category={project.category} categoryList={categoryList} />
       <h2>{project.name}</h2>
       <p>{project.stage}</p>
       <div className="drawer-actions">
+        <button onClick={onClose} type="button">
+          退出详情
+        </button>
         <button className="primary-action" onClick={() => onCreateTask(project)} type="button">
           <Plus size={16} />
           <span>从项目创建任务</span>
         </button>
+        {project.id !== unassignedProjectId && (
+          <>
+            <button onClick={() => onArchive(project.id)} type="button">
+              <RotateCcw size={15} />
+              {project.archived ? '恢复项目' : '归档项目'}
+            </button>
+            <button className="danger-action" onClick={() => onDelete(project.id)} type="button">
+              <Trash2 size={15} />
+              删除项目
+            </button>
+          </>
+        )}
       </div>
       <div className="drawer-grid">
         <InfoCell label="项目状态" value={projectStatusLabel[runtime.status as ProjectStatus]} alert={runtime.status === 'risk'} />
@@ -3181,7 +3226,8 @@ function ProjectDrawer({
           )}
         </div>
       </div>
-    </aside>
+      </aside>
+    </div>
   );
 }
 

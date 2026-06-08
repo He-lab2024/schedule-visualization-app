@@ -73,6 +73,30 @@ describe('App core workflows', () => {
     expect(screen.getByRole('button', { name: '保存到硬盘' })).toBeDisabled();
   });
 
+  it('deletes a project directly from the projects page', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, 'prompt').mockReturnValue('1');
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: '项目进度' }));
+    await user.click(screen.getAllByRole('button', { name: '删除项目' })[0]);
+
+    expect(window.prompt).toHaveBeenCalled();
+    expect(screen.getByText('项目已删除')).toBeInTheDocument();
+  });
+
+  it('closes detail drawers with an explicit exit button', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: /1\s*转氨酶论文引言重写/ }));
+    expect(screen.getByRole('heading', { name: '转氨酶论文引言重写' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '退出详情' }));
+
+    expect(screen.queryByRole('heading', { name: '转氨酶论文引言重写' })).not.toBeInTheDocument();
+  });
+
   it('undoes batch completion from the action notice', async () => {
     const user = userEvent.setup();
     render(<App />);
