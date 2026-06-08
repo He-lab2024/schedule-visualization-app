@@ -7,9 +7,12 @@ import {
   BookOpen,
   Brain,
   CalendarDays,
+  CalendarCheck,
+  CheckCircle2,
   ChevronRight,
   CircleDot,
   Clock3,
+  Copy,
   Download,
   FlaskConical,
   Gauge,
@@ -20,9 +23,12 @@ import {
   ListChecks,
   PenLine,
   Plus,
+  RotateCcw,
   Search,
   Settings,
   SlidersHorizontal,
+  Tags,
+  Trash2,
   Upload,
 } from 'lucide-react';
 import type { CSSProperties, ComponentType, FormEvent, ReactNode } from 'react';
@@ -83,6 +89,15 @@ type PersistedState = {
 type TaskFilter = 'all' | 'active' | 'risk' | 'done';
 
 const storageKey = 'research-schedule-dashboard-state-v1';
+
+const taskStatuses: Array<{ id: TaskStatus; label: string }> = [
+  { id: 'planned', label: '已计划' },
+  { id: 'active', label: '进行中' },
+  { id: 'done', label: '已完成' },
+  { id: 'delayed', label: '延期' },
+  { id: 'blocked', label: '阻塞' },
+  { id: 'cancelled', label: '取消' },
+];
 
 const taskFilters: Array<{ id: TaskFilter; label: string }> = [
   { id: 'all', label: '全部' },
@@ -208,6 +223,7 @@ function App() {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [taskFilter, setTaskFilter] = useState<TaskFilter>('all');
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set());
 
   const filteredTasks = useMemo(
     () =>
@@ -217,6 +233,14 @@ function App() {
     [categoryList, searchQuery, taskFilter, taskList],
   );
   const todayTasks = useMemo(() => getTasksForDate(filteredTasks, appDate.today), [filteredTasks]);
+
+  useEffect(() => {
+    setSelectedTaskIds((current) => {
+      const existingIds = new Set(taskList.map((task) => task.id));
+      const next = new Set(Array.from(current).filter((taskId) => existingIds.has(taskId)));
+      return next.size === current.size ? current : next;
+    });
+  }, [taskList]);
 
   useEffect(() => {
     const state: PersistedState = {
@@ -245,11 +269,88 @@ function App() {
     setTaskList((current) =>
       current.map((task) => {
         if (task.id !== taskId) return task;
-        const nextTask = { ...task, status };
+        const needsReason = (status === 'delayed' || status === 'blocked') && !task.delayReason?.trim();
+        const delayReason = needsReason
+          ? window.prompt(status === 'blocked' ? '请填写阻塞原因' : '请填写延期原因')?.trim()
+          : task.delayReason;
+        if (needsReason && !delayReason) return task;
+        const nextTask = { ...task, status, delayReason };
         setSelectedTask(nextTask);
         return nextTask;
       }),
     );
+  };
+
+  const deleteTask = (taskId: string) => {
+    const task = taskList.find((item) => item.id === taskId);
+    if (!task) return;
+    if (!window.confirm(`确认删除任务“${task.title}”？此操作会从当前数据中移除它。`)) return;
+    setTaskList((current) => current.filter((item) => item.id !== taskId));
+    setSelectedTask(null);
+    setSelectedTaskIds((current) => {
+      const next = new Set(current);
+      next.delete(taskId);
+      return next;
+    });
+  };
+
+  const duplicateTask = (task: Task) => {
+    const nextTask: Task = {
+      ...task,
+      id: `t-${Date.now()}`,
+      title: `${task.title} 副本`,
+      status: task.status === 'done' || task.status === 'cancelled' ? 'planned' : task.status,
+    };
+    setTaskList((current) => [nextTask, ...current]);
+    setSelectedTask(nextTask);
+  };
+
+  const toggleTaskSelection = (taskId: string) => {
+    setSelectedTaskIds((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  };
+
+  const selectFilteredTasks = () => {
+    setSelectedTaskIds(new Set(filteredTasks.map((task) => task.id)));
+  };
+
+  const clearSelectedTasks = () => {
+    setSelectedTaskIds(new Set());
+  };
+
+  const batchCompleteTasks = () => {
+    if (selectedTaskIds.size === 0) return;
+    setTaskList((current) =>
+      current.map((task) => (selectedTaskIds.has(task.id) ? { ...task, status: 'done' } : task)),
+    );
+    setSelectedTask((current) => (current && selectedTaskIds.has(current.id) ? { ...current, status: 'done' } : current));
+  };
+
+  const batchUpdateDate = (date: string) => {
+    if (!date || selectedTaskIds.size === 0) return;
+    setTaskList((current) => current.map((task) => (selectedTaskIds.has(task.id) ? { ...task, date } : task)));
+    setSelectedTask((current) => (current && selectedTaskIds.has(current.id) ? { ...current, date } : current));
+  };
+
+  const batchUpdateCategory = (category: CategoryId) => {
+    if (!category || selectedTaskIds.size === 0) return;
+    setTaskList((current) => current.map((task) => (selectedTaskIds.has(task.id) ? { ...task, category } : task)));
+    setSelectedTask((current) => (current && selectedTaskIds.has(current.id) ? { ...current, category } : current));
+  };
+
+  const batchDeleteTasks = () => {
+    if (selectedTaskIds.size === 0) return;
+    if (!window.confirm(`确认删除已选择的 ${selectedTaskIds.size} 个任务？此操作会从当前数据中移除它们。`)) return;
+    setTaskList((current) => current.filter((task) => !selectedTaskIds.has(task.id)));
+    setSelectedTask((current) => (current && selectedTaskIds.has(current.id) ? null : current));
+    clearSelectedTasks();
   };
 
   const addCategory = (name: string, color: string) => {
@@ -343,18 +444,49 @@ function App() {
         onSearchChange={setSearchQuery}
         onTaskFilterChange={setTaskFilter}
       />
+      {activeView !== 'settings' && (
+        <BatchToolbar
+          categoryList={categoryList}
+          filteredCount={filteredTasks.length}
+          selectedCount={selectedTaskIds.size}
+          onBatchCategoryChange={batchUpdateCategory}
+          onBatchComplete={batchCompleteTasks}
+          onBatchDateChange={batchUpdateDate}
+          onBatchDelete={batchDeleteTasks}
+          onClearSelection={clearSelectedTasks}
+          onSelectFiltered={selectFilteredTasks}
+        />
+      )}
       {activeView === 'today' && (
         <TodayDashboard
           allTasks={filteredTasks}
           categoryList={categoryList}
+          selectedTaskIds={selectedTaskIds}
           todayTasks={todayTasks}
           widgetList={widgetList}
           onSelectTask={setSelectedTask}
+          onToggleTaskSelection={toggleTaskSelection}
         />
       )}
-      {activeView === 'week' && <WeeklyMatrix allTasks={filteredTasks} categoryList={categoryList} onSelectTask={setSelectedTask} />}
+      {activeView === 'week' && (
+        <WeeklyMatrix
+          allTasks={filteredTasks}
+          categoryList={categoryList}
+          selectedTaskIds={selectedTaskIds}
+          onSelectTask={setSelectedTask}
+          onToggleTaskSelection={toggleTaskSelection}
+        />
+      )}
       {activeView === 'projects' && <ProjectProgress allTasks={filteredTasks} categoryList={categoryList} />}
-      {activeView === 'workbench' && <Workbench allTasks={filteredTasks} categoryList={categoryList} onSelectTask={setSelectedTask} />}
+      {activeView === 'workbench' && (
+        <Workbench
+          allTasks={filteredTasks}
+          categoryList={categoryList}
+          selectedTaskIds={selectedTaskIds}
+          onSelectTask={setSelectedTask}
+          onToggleTaskSelection={toggleTaskSelection}
+        />
+      )}
       {activeView === 'review' && <Review allTasks={filteredTasks} categoryList={categoryList} />}
       {activeView === 'settings' && (
         <SettingsView
@@ -375,6 +507,8 @@ function App() {
         categoryList={categoryList}
         task={selectedTask}
         onClose={() => setSelectedTask(null)}
+        onDelete={deleteTask}
+        onDuplicate={duplicateTask}
         onEdit={(task) => setEditingTask(task)}
         onStatusChange={updateTaskStatus}
       />
@@ -463,18 +597,95 @@ function TopBar({
   );
 }
 
+function BatchToolbar({
+  categoryList,
+  filteredCount,
+  selectedCount,
+  onBatchCategoryChange,
+  onBatchComplete,
+  onBatchDateChange,
+  onBatchDelete,
+  onClearSelection,
+  onSelectFiltered,
+}: {
+  categoryList: Category[];
+  filteredCount: number;
+  selectedCount: number;
+  onBatchCategoryChange: (category: CategoryId) => void;
+  onBatchComplete: () => void;
+  onBatchDateChange: (date: string) => void;
+  onBatchDelete: () => void;
+  onClearSelection: () => void;
+  onSelectFiltered: () => void;
+}) {
+  const hasSelection = selectedCount > 0;
+
+  return (
+    <section className="batch-toolbar" aria-label="批量任务操作">
+      <div>
+        <strong>{hasSelection ? `已选择 ${selectedCount} 个任务` : `${filteredCount} 个筛选结果`}</strong>
+        <span>可批量完成、改日期、改分类或删除</span>
+      </div>
+      <div className="batch-actions">
+        <button className="secondary-action" disabled={filteredCount === 0} onClick={onSelectFiltered} type="button">
+          全选结果
+        </button>
+        <button className="secondary-action" disabled={!hasSelection} onClick={onClearSelection} type="button">
+          清空
+        </button>
+        <button className="secondary-action" disabled={!hasSelection} onClick={onBatchComplete} type="button">
+          <CheckCircle2 size={16} />
+          <span>批量完成</span>
+        </button>
+        <label className={`batch-field ${!hasSelection ? 'is-disabled' : ''}`}>
+          <CalendarCheck size={16} />
+          <input disabled={!hasSelection} onChange={(event) => onBatchDateChange(event.target.value)} type="date" />
+        </label>
+        <label className={`batch-field ${!hasSelection ? 'is-disabled' : ''}`}>
+          <Tags size={16} />
+          <select
+            disabled={!hasSelection}
+            defaultValue=""
+            onChange={(event) => {
+              if (event.target.value) {
+                onBatchCategoryChange(event.target.value);
+                event.currentTarget.value = '';
+              }
+            }}
+          >
+            <option value="">改分类</option>
+            {categoryList.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="danger-action" disabled={!hasSelection} onClick={onBatchDelete} type="button">
+          <Trash2 size={16} />
+          <span>批量删除</span>
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function TodayDashboard({
   allTasks,
   categoryList,
+  selectedTaskIds,
   todayTasks,
   widgetList,
   onSelectTask,
+  onToggleTaskSelection,
 }: {
   allTasks: Task[];
   categoryList: Category[];
+  selectedTaskIds: Set<string>;
   todayTasks: Task[];
   widgetList: Widget[];
   onSelectTask: (task: Task) => void;
+  onToggleTaskSelection: (taskId: string) => void;
 }) {
   const todayMetrics = getTodayMetrics(allTasks, appDate.today);
   const energySummary = getEnergySummary(todayTasks);
@@ -510,11 +721,19 @@ function TodayDashboard({
             <EmptyState title="没有匹配的今日重点" text="调整搜索或状态筛选后，这里会重新显示优先级最高的任务。" />
           ) : (
             priorityTasks.map((task, index) => (
-              <button className="priority-item" key={task.id} onClick={() => onSelectTask(task)} type="button">
-                <span>{index + 1}</span>
-                <strong>{task.title}</strong>
-                <ChevronRight size={16} />
-              </button>
+              <div className="selectable-task" key={task.id}>
+                <input
+                  aria-label={`选择${task.title}`}
+                  checked={selectedTaskIds.has(task.id)}
+                  onChange={() => onToggleTaskSelection(task.id)}
+                  type="checkbox"
+                />
+                <button className="priority-item" onClick={() => onSelectTask(task)} type="button">
+                  <span>{index + 1}</span>
+                  <strong>{task.title}</strong>
+                  <ChevronRight size={16} />
+                </button>
+              </div>
             ))
           )}
         </div>
@@ -528,22 +747,29 @@ function TodayDashboard({
               <EmptyState title="今日没有匹配任务" text="搜索和状态筛选会同步作用到今日时间轴。" />
             ) : (
               todayTasks.map((task) => (
-                <button
-                  className={`timeline-item status-${task.status}`}
-                  key={task.id}
-                  onClick={() => onSelectTask(task)}
-                  style={accentStyle(categoryList, task.category)}
-                  type="button"
-                >
-                  <span className="time">{task.start}</span>
-                  <div>
-                    <strong>{task.title}</strong>
-                    <small>
-                      {task.duration} 分钟 · {projectMap[task.projectId].name} · {statusLabel[task.status]}
-                    </small>
-                  </div>
-                  <CategoryPill category={task.category} categoryList={categoryList} />
-                </button>
+                <div className="selectable-task" key={task.id}>
+                  <input
+                    aria-label={`选择${task.title}`}
+                    checked={selectedTaskIds.has(task.id)}
+                    onChange={() => onToggleTaskSelection(task.id)}
+                    type="checkbox"
+                  />
+                  <button
+                    className={`timeline-item status-${task.status}`}
+                    onClick={() => onSelectTask(task)}
+                    style={accentStyle(categoryList, task.category)}
+                    type="button"
+                  >
+                    <span className="time">{task.start}</span>
+                    <div>
+                      <strong>{task.title}</strong>
+                      <small>
+                        {task.duration} 分钟 · {projectMap[task.projectId].name} · {statusLabel[task.status]}
+                      </small>
+                    </div>
+                    <CategoryPill category={task.category} categoryList={categoryList} />
+                  </button>
+                </div>
               ))
             )}
           </div>
@@ -608,11 +834,15 @@ function TodayDashboard({
 function WeeklyMatrix({
   allTasks,
   categoryList,
+  selectedTaskIds,
   onSelectTask,
+  onToggleTaskSelection,
 }: {
   allTasks: Task[];
   categoryList: Category[];
+  selectedTaskIds: Set<string>;
   onSelectTask: (task: Task) => void;
+  onToggleTaskSelection: (taskId: string) => void;
 }) {
   const weeklyLoads = getWeeklyLoads(allTasks, weekDays);
 
@@ -638,18 +868,25 @@ function WeeklyMatrix({
               return (
                 <div className={`matrix-cell ${dayTasks.length > 1 ? 'is-dense' : ''}`} key={`${category.id}-${day.date}`}>
                   {dayTasks.map((task) => (
-                    <button
-                      className={`mini-task status-${task.status}`}
-                      key={task.id}
-                      onClick={() => onSelectTask(task)}
-                      style={accentStyle(categoryList, task.category)}
-                      type="button"
-                    >
-                      <strong>{task.title}</strong>
-                      <span>
-                        {task.start} · {statusLabel[task.status]}
-                      </span>
-                    </button>
+                    <div className="mini-task-wrap" key={task.id}>
+                      <input
+                        aria-label={`选择${task.title}`}
+                        checked={selectedTaskIds.has(task.id)}
+                        onChange={() => onToggleTaskSelection(task.id)}
+                        type="checkbox"
+                      />
+                      <button
+                        className={`mini-task status-${task.status}`}
+                        onClick={() => onSelectTask(task)}
+                        style={accentStyle(categoryList, task.category)}
+                        type="button"
+                      >
+                        <strong>{task.title}</strong>
+                        <span>
+                          {task.start} · {statusLabel[task.status]}
+                        </span>
+                      </button>
+                    </div>
                   ))}
                   {dayTasks.length === 0 && <span className="empty-slot" />}
                 </div>
@@ -705,11 +942,15 @@ function ProjectProgress({ allTasks, categoryList }: { allTasks: Task[]; categor
 function Workbench({
   allTasks,
   categoryList,
+  selectedTaskIds,
   onSelectTask,
+  onToggleTaskSelection,
 }: {
   allTasks: Task[];
   categoryList: Category[];
+  selectedTaskIds: Set<string>;
   onSelectTask: (task: Task) => void;
+  onToggleTaskSelection: (taskId: string) => void;
 }) {
   const writingTasks = allTasks.filter((task) => task.category === 'writing');
   const experimentTasks = allTasks.filter((task) => task.category === 'experiment');
@@ -726,7 +967,13 @@ function Workbench({
           <InfoCell label="版本" value={currentPaper?.version ?? '未设置'} />
           <InfoCell label="反馈" value={currentPaper?.feedback ?? '未设置'} alert />
         </div>
-        <TaskList categoryList={categoryList} tasks={writingTasks} onSelectTask={onSelectTask} />
+        <TaskList
+          categoryList={categoryList}
+          selectedTaskIds={selectedTaskIds}
+          tasks={writingTasks}
+          onSelectTask={onSelectTask}
+          onToggleTaskSelection={onToggleTaskSelection}
+        />
       </div>
       <div className="span-6 panel work-panel">
         <PanelTitle icon={Beaker} title="实验工作台" />
@@ -736,7 +983,13 @@ function Workbench({
           <InfoCell label="条件" value={currentExperiment?.condition ?? '未设置'} />
           <InfoCell label="等待期" value={currentExperiment?.waiting ?? '未设置'} alert />
         </div>
-        <TaskList categoryList={categoryList} tasks={experimentTasks} onSelectTask={onSelectTask} />
+        <TaskList
+          categoryList={categoryList}
+          selectedTaskIds={selectedTaskIds}
+          tasks={experimentTasks}
+          onSelectTask={onSelectTask}
+          onToggleTaskSelection={onToggleTaskSelection}
+        />
       </div>
     </section>
   );
@@ -964,6 +1217,7 @@ function TaskForm({
   onCancel: () => void;
   onSave: (task: Task) => void;
 }) {
+  const [formError, setFormError] = useState('');
   const [draft, setDraft] = useState<Task>(
     task ?? {
       id: `t-${Date.now()}`,
@@ -973,12 +1227,14 @@ function TaskForm({
       date: appDate.today,
       start: '09:00',
       duration: 60,
+      actualDuration: undefined,
       energy: '中',
       location: '办公室',
       status: 'planned',
       standard: '',
       dependency: '',
       delayReason: '',
+      notes: '',
       detail: '',
     },
   );
@@ -989,11 +1245,35 @@ function TaskForm({
 
   const submitTask = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const title = draft.title.trim();
+    const duration = Number(draft.duration);
+    const actualDuration = draft.actualDuration === undefined ? undefined : Number(draft.actualDuration);
+    const delayReason = draft.delayReason?.trim() || undefined;
+
+    if (!title) {
+      setFormError('请填写任务标题。');
+      return;
+    }
+    if (!Number.isFinite(duration) || duration < 15) {
+      setFormError('预计时长至少为 15 分钟。');
+      return;
+    }
+    if (actualDuration !== undefined && (!Number.isFinite(actualDuration) || actualDuration < 0)) {
+      setFormError('实际耗时不能小于 0。');
+      return;
+    }
+    if ((draft.status === 'delayed' || draft.status === 'blocked') && !delayReason) {
+      setFormError('延期或阻塞任务需要填写原因。');
+      return;
+    }
+
     onSave({
       ...draft,
-      title: draft.title.trim() || '未命名任务',
-      duration: Number(draft.duration) || 30,
-      delayReason: draft.delayReason?.trim() || undefined,
+      title,
+      duration,
+      actualDuration,
+      delayReason,
+      notes: draft.notes?.trim() || undefined,
       detail: draft.detail.trim() || draft.standard.trim() || '待补充任务说明。',
     });
   };
@@ -1054,6 +1334,18 @@ function TaskForm({
           />
         </label>
         <label className="field">
+          <span>实际耗时</span>
+          <input
+            min={0}
+            step={15}
+            type="number"
+            value={draft.actualDuration ?? ''}
+            onChange={(event) =>
+              updateDraft('actualDuration', event.target.value === '' ? undefined : Number(event.target.value))
+            }
+          />
+        </label>
+        <label className="field">
           <span>精力等级</span>
           <select value={draft.energy} onChange={(event) => updateDraft('energy', event.target.value as Task['energy'])}>
             <option value="低">低</option>
@@ -1064,12 +1356,25 @@ function TaskForm({
         <label className="field">
           <span>状态</span>
           <select value={draft.status} onChange={(event) => updateDraft('status', event.target.value as TaskStatus)}>
-            <option value="planned">已计划</option>
-            <option value="active">进行中</option>
-            <option value="done">已完成</option>
-            <option value="delayed">延期</option>
-            <option value="blocked">阻塞</option>
-            <option value="cancelled">取消</option>
+            {taskStatuses.map((status) => (
+              <option key={status.id} value={status.id}>
+                {status.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>优先级</span>
+          <select
+            value={draft.priority ?? ''}
+            onChange={(event) =>
+              updateDraft('priority', event.target.value === '' ? undefined : (Number(event.target.value) as Task['priority']))
+            }
+          >
+            <option value="">未设置</option>
+            <option value="1">高</option>
+            <option value="2">中</option>
+            <option value="3">低</option>
           </select>
         </label>
         <label className="field">
@@ -1085,14 +1390,19 @@ function TaskForm({
           <input value={draft.standard} onChange={(event) => updateDraft('standard', event.target.value)} />
         </label>
         <label className="field span-2">
-          <span>延期原因</span>
+          <span>延期/阻塞原因</span>
           <input value={draft.delayReason ?? ''} onChange={(event) => updateDraft('delayReason', event.target.value)} />
+        </label>
+        <label className="field span-2">
+          <span>备注</span>
+          <textarea value={draft.notes ?? ''} onChange={(event) => updateDraft('notes', event.target.value)} />
         </label>
         <label className="field span-2">
           <span>任务说明</span>
           <textarea value={draft.detail} onChange={(event) => updateDraft('detail', event.target.value)} />
         </label>
 
+        {formError && <div className="form-error">{formError}</div>}
         <div className="form-actions">
           <button className="secondary-action" onClick={onCancel} type="button">
             取消
@@ -1110,12 +1420,16 @@ function TaskDrawer({
   categoryList,
   task,
   onClose,
+  onDelete,
+  onDuplicate,
   onEdit,
   onStatusChange,
 }: {
   categoryList: Category[];
   task: Task | null;
   onClose: () => void;
+  onDelete: (taskId: string) => void;
+  onDuplicate: (task: Task) => void;
   onEdit: (task: Task) => void;
   onStatusChange: (taskId: string, status: TaskStatus) => void;
 }) {
@@ -1133,9 +1447,39 @@ function TaskDrawer({
         <button onClick={() => onEdit(task)} type="button">
           编辑
         </button>
-        <button onClick={() => onStatusChange(task.id, 'done')} type="button">
-          完成
+        <button onClick={() => onDuplicate(task)} type="button">
+          <Copy size={15} />
+          复制
         </button>
+        {task.status === 'done' ? (
+          <button onClick={() => onStatusChange(task.id, 'active')} type="button">
+            <RotateCcw size={15} />
+            恢复
+          </button>
+        ) : (
+          <button onClick={() => onStatusChange(task.id, 'done')} type="button">
+            <CheckCircle2 size={15} />
+            完成
+          </button>
+        )}
+        <button className="danger-action" onClick={() => onDelete(task.id)} type="button">
+          <Trash2 size={15} />
+          删除
+        </button>
+      </div>
+      <div className="status-switcher">
+        {taskStatuses.map((status) => (
+          <button
+            className={task.status === status.id ? 'is-active' : ''}
+            key={status.id}
+            onClick={() => onStatusChange(task.id, status.id)}
+            type="button"
+          >
+            {status.label}
+          </button>
+        ))}
+      </div>
+      <div className="drawer-actions">
         <button onClick={() => onStatusChange(task.id, 'delayed')} type="button">
           延期
         </button>
@@ -1147,12 +1491,14 @@ function TaskDrawer({
         <InfoCell label="所属项目" value={projectMap[task.projectId].name} />
         <InfoCell label="任务状态" value={statusLabel[task.status]} alert={task.status === 'blocked' || task.status === 'delayed'} />
         <InfoCell label="预计时长" value={`${task.duration} 分钟`} />
+        <InfoCell label="实际耗时" value={task.actualDuration ? `${task.actualDuration} 分钟` : '未记录'} />
         <InfoCell label="精力等级" value={task.energy} />
         <InfoCell label="地点" value={task.location} />
         <InfoCell label="截止时间" value={`${task.date} ${task.start}`} />
         <InfoCell label="依赖关系" value={task.dependency} />
         <InfoCell label="完成标准" value={task.standard} />
-        <InfoCell label="延期原因" value={task.delayReason ?? '无'} alert={Boolean(task.delayReason)} />
+        <InfoCell label="延期/阻塞原因" value={task.delayReason ?? '无'} alert={Boolean(task.delayReason)} />
+        <InfoCell label="备注" value={task.notes ?? '无'} />
       </div>
     </aside>
   );
@@ -1254,12 +1600,16 @@ function InfoCell({ label, value, alert }: { label: string; value: string; alert
 
 function TaskList({
   categoryList,
+  selectedTaskIds,
   tasks: taskList,
   onSelectTask,
+  onToggleTaskSelection,
 }: {
   categoryList: Category[];
+  selectedTaskIds: Set<string>;
   tasks: Task[];
   onSelectTask: (task: Task) => void;
+  onToggleTaskSelection: (taskId: string) => void;
 }) {
   return (
     <div className="compact-task-list">
@@ -1267,13 +1617,21 @@ function TaskList({
         <EmptyState title="没有匹配任务" text="这里的任务列表会跟随顶部搜索和状态筛选更新。" />
       ) : (
         taskList.map((task) => (
-          <button key={task.id} onClick={() => onSelectTask(task)} style={accentStyle(categoryList, task.category)} type="button">
-            <span className={`status-dot status-${task.status}`} />
-            <strong>{task.title}</strong>
-            <small>
-              {task.date} · {statusLabel[task.status]}
-            </small>
-          </button>
+          <div className="selectable-task" key={task.id}>
+            <input
+              aria-label={`选择${task.title}`}
+              checked={selectedTaskIds.has(task.id)}
+              onChange={() => onToggleTaskSelection(task.id)}
+              type="checkbox"
+            />
+            <button onClick={() => onSelectTask(task)} style={accentStyle(categoryList, task.category)} type="button">
+              <span className={`status-dot status-${task.status}`} />
+              <strong>{task.title}</strong>
+              <small>
+                {task.date} · {statusLabel[task.status]}
+              </small>
+            </button>
+          </div>
         ))
       )}
     </div>

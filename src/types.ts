@@ -18,12 +18,14 @@ export type Task = {
   date: string;
   start: string;
   duration: number;
+  actualDuration?: number;
   energy: EnergyLevel;
   location: string;
   status: TaskStatus;
   standard: string;
   dependency: string;
   delayReason?: string;
+  notes?: string;
   detail: string;
   priority?: 1 | 2 | 3;
   paperFields?: {

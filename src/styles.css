@@ -25,6 +25,13 @@ button {
   cursor: pointer;
 }
 
+button:disabled,
+input:disabled,
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 264px minmax(0, 1fr);
@@ -277,6 +284,87 @@ button {
   background: #ffffff;
 }
 
+.danger-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 13px;
+  border: 1px solid #f0c9c6;
+  border-radius: 8px;
+  color: #b7433d;
+  background: #fff5f4;
+  font-weight: 800;
+}
+
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  margin: -8px 0 18px;
+  padding: 12px;
+  border: 1px solid #dfe3ea;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.batch-toolbar > div:first-child {
+  min-width: 160px;
+}
+
+.batch-toolbar strong,
+.batch-toolbar span {
+  display: block;
+}
+
+.batch-toolbar strong {
+  color: #17202c;
+  font-size: 13px;
+}
+
+.batch-toolbar span {
+  margin-top: 3px;
+  color: #8a93a3;
+  font-size: 12px;
+}
+
+.batch-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.batch-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid #d8dde6;
+  border-radius: 8px;
+  color: #465264;
+  background: #ffffff;
+}
+
+.batch-field input,
+.batch-field select {
+  min-width: 116px;
+  border: 0;
+  outline: 0;
+  color: #1f2733;
+  background: transparent;
+}
+
+.batch-field.is-disabled {
+  opacity: 0.62;
+}
+
 .page-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -416,6 +504,22 @@ button {
   border: 0;
   text-align: left;
   background: transparent;
+}
+
+.selectable-task,
+.mini-task-wrap {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.selectable-task > input,
+.mini-task-wrap > input {
+  width: 16px;
+  height: 16px;
+  accent-color: #5b6ee1;
 }
 
 .priority-item {
@@ -696,6 +800,14 @@ button {
   color: #1f2733;
   background: var(--accent-soft);
   text-align: left;
+}
+
+.mini-task-wrap {
+  align-items: start;
+}
+
+.mini-task-wrap > input {
+  margin-top: 10px;
 }
 
 .mini-task strong {
@@ -1137,6 +1249,9 @@ button {
 }
 
 .drawer-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-height: 32px;
   padding: 0 10px;
   border: 1px solid #d8dde6;
@@ -1144,6 +1259,36 @@ button {
   color: #465264;
   background: #ffffff;
   font-weight: 800;
+}
+
+.drawer-actions .danger-action {
+  border-color: #f0c9c6;
+  color: #b7433d;
+  background: #fff5f4;
+}
+
+.status-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 16px;
+}
+
+.status-switcher button {
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid #d8dde6;
+  border-radius: 8px;
+  color: #687182;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.status-switcher button.is-active {
+  color: #17202c;
+  border-color: #f5c84b;
+  background: #fff1c2;
 }
 
 .drawer-grid {
@@ -1221,6 +1366,17 @@ button {
 .field textarea {
   min-height: 88px;
   resize: vertical;
+}
+
+.form-error {
+  grid-column: 1 / -1;
+  padding: 10px 12px;
+  border: 1px solid #f0c9c6;
+  border-radius: 8px;
+  color: #b7433d;
+  background: #fff5f4;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .form-actions {
@@ -1306,6 +1462,20 @@ button {
   .topbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .batch-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .batch-actions {
+    justify-content: flex-start;
+  }
+
+  .batch-actions > *,
+  .batch-field {
+    flex: 1 1 150px;
   }
 
   .top-actions {
