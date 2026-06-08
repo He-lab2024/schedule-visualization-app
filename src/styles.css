@@ -162,6 +162,25 @@ select:disabled {
   padding: 28px;
 }
 
+.density-compact .workspace {
+  padding: 18px;
+}
+
+.density-compact .page-grid {
+  gap: 12px;
+}
+
+.density-compact .panel,
+.density-compact .hero-panel,
+.density-compact .task-drawer {
+  padding: 14px;
+}
+
+.density-compact .metric {
+  min-height: 74px;
+  padding: 10px;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -1373,13 +1392,23 @@ select:disabled {
 
 .setting-row {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
+  grid-template-columns: 24px minmax(0, 1fr) auto 40px;
   align-items: center;
   gap: 10px;
   min-height: 42px;
   padding: 9px 10px;
   border-radius: 8px;
   background: #f8fafc;
+}
+
+.setting-row input:not(.color-input) {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid #d8dde6;
+  border-radius: 8px;
+  color: #1f2733;
+  background: #ffffff;
 }
 
 .inline-form {
@@ -1428,12 +1457,83 @@ select:disabled {
   gap: 12px;
 }
 
+.project-settings-list {
+  display: grid;
+  gap: 12px;
+}
+
+.project-settings-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #e0e5ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.project-settings-head,
+.template-card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-settings-grid,
+.project-add-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.project-settings-grid .span-wide {
+  grid-column: span 2;
+}
+
+.project-settings-card input,
+.project-settings-card select,
+.project-add-form input,
+.project-add-form select,
+.template-card-head input,
+.template-add-form input,
+.preset-save-form input {
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid #d8dde6;
+  border-radius: 8px;
+  color: #1f2733;
+  background: #ffffff;
+}
+
+.project-add-form {
+  margin-top: 12px;
+}
+
+.project-add-form button {
+  min-width: 118px;
+}
+
+.mini-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.mini-actions .icon-button {
+  width: 34px;
+  height: 34px;
+}
+
 .template-card {
   min-height: 150px;
   padding: 14px;
   border: 1px solid #e0e5ef;
   border-radius: 8px;
   background: #f8fafc;
+}
+
+.template-card-head {
+  margin-bottom: 12px;
 }
 
 .template-card strong {
@@ -1446,6 +1546,16 @@ select:disabled {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 12px;
+}
+
+.template-card .template-card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.template-card .mini-actions {
+  display: inline-flex;
+  margin-bottom: 0;
 }
 
 .template-card span,
@@ -1461,10 +1571,19 @@ select:disabled {
 }
 
 .preset-row,
-.widget-row {
+.widget-row,
+.density-row {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.density-row {
+  margin-bottom: 12px;
+}
+
+.preset-save-form {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .preset.is-active {
@@ -1931,6 +2050,8 @@ select:disabled {
   .energy-board,
   .time-block-grid,
   .lane-grid,
+  .project-settings-grid,
+  .project-add-form,
   .work-meta-grid,
   .drawer-grid,
   .task-form,
@@ -1942,6 +2063,24 @@ select:disabled {
   .workload-alert-grid,
   .review-note-grid,
   .matrix-footer {
+    grid-template-columns: 1fr;
+  }
+
+  .project-settings-grid .span-wide,
+  .setting-row {
+    grid-column: auto;
+  }
+
+  .setting-row {
+    grid-template-columns: 24px minmax(0, 1fr) 40px;
+  }
+
+  .setting-row span:last-child {
+    display: none;
+  }
+
+  .preset-save-form,
+  .template-add-form {
     grid-template-columns: 1fr;
   }
 

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   BarChart3,
   Beaker,
   Bell,
@@ -63,8 +65,6 @@ const navItems: Array<{ id: ViewId; label: string; icon: ComponentType<{ size?: 
   { id: 'settings', label: '设置模板', icon: Settings },
 ];
 
-const projectMap = toMap(projects);
-
 const fallbackCategory: Category = { id: 'custom', name: '自定义', color: '#607d8b', soft: '#edf2f4' };
 
 const getCategory = (categoryList: Category[], categoryId: CategoryId) =>
@@ -80,13 +80,23 @@ const accentStyle = (categoryList: Category[], categoryId: CategoryId) => {
 
 const makeSoftColor = (hex: string) => `${hex}1a`;
 
+const parseDelimitedFields = (value: string) =>
+  value
+    .split(/[、,，]/)
+    .map((field) => field.trim())
+    .filter(Boolean);
+
 type PersistedState = {
   version: number;
   taskList: Task[];
   categoryList: Category[];
+  projectList: ProjectLane[];
   widgetList: Widget[];
+  reviewMetricList: Widget[];
   templateList: FieldTemplate[];
   activePresetId: string;
+  customPresetList: ViewPreset[];
+  displayDensity: 'comfortable' | 'compact';
   dailyReviewNote: string;
   weeklyConclusion: string;
   nextWeekAdjustment: string;
@@ -117,6 +127,14 @@ const taskFilters: Array<{ id: TaskFilter; label: string }> = [
   { id: 'done', label: '已完成' },
 ];
 
+const reviewMetrics: Widget[] = [
+  { id: 'summary', name: '完成与延期', visible: true },
+  { id: 'distribution', name: '分类/项目投入', visible: true },
+  { id: 'energy', name: '高脑力负荷', visible: true },
+  { id: 'insights', name: '风险洞察', visible: true },
+  { id: 'suggestions', name: '下周建议', visible: true },
+];
+
 const projectStatusLabel: Record<ProjectStatus, string> = {
   'not-started': '未开始',
   active: '进行中',
@@ -129,9 +147,13 @@ const defaultPersistedState = (): PersistedState => ({
   version: storageVersion,
   taskList: initialTasks,
   categoryList: categories,
+  projectList: projects,
   widgetList: widgets,
+  reviewMetricList: reviewMetrics,
   templateList: fieldTemplates,
   activePresetId: viewPresets[0].id,
+  customPresetList: [],
+  displayDensity: 'comfortable',
   dailyReviewNote: '',
   weeklyConclusion: '',
   nextWeekAdjustment: '',
@@ -165,8 +187,11 @@ const validatePersistedState = (value: unknown): { ok: true; state: PersistedSta
   const fallback = defaultPersistedState();
   const taskList = Array.isArray(value.taskList) ? value.taskList : null;
   const categoryList = Array.isArray(value.categoryList) ? value.categoryList : null;
+  const projectList = Array.isArray(value.projectList) ? value.projectList : projects;
   const widgetList = Array.isArray(value.widgetList) ? value.widgetList : null;
+  const reviewMetricList = Array.isArray(value.reviewMetricList) ? value.reviewMetricList : reviewMetrics;
   const templateList = Array.isArray(value.templateList) ? value.templateList : null;
+  const customPresetList = Array.isArray(value.customPresetList) ? value.customPresetList : [];
 
   if (!taskList || !taskList.every(isTask)) return { ok: false, message: '任务列表结构无效。' };
   if (!categoryList || !categoryList.every((item) => isRecord(item) && typeof item.id === 'string' && typeof item.name === 'string')) {
@@ -182,9 +207,13 @@ const validatePersistedState = (value: unknown): { ok: true; state: PersistedSta
       version: storageVersion,
       taskList: taskList as Task[],
       categoryList: categoryList as Category[],
+      projectList: projectList as ProjectLane[],
       widgetList: widgetList as Widget[],
+      reviewMetricList: reviewMetricList as Widget[],
       templateList: templateList as FieldTemplate[],
       activePresetId: typeof value.activePresetId === 'string' ? value.activePresetId : fallback.activePresetId,
+      customPresetList: customPresetList as ViewPreset[],
+      displayDensity: value.displayDensity === 'compact' ? 'compact' : 'comfortable',
       dailyReviewNote: typeof value.dailyReviewNote === 'string' ? value.dailyReviewNote : '',
       weeklyConclusion: typeof value.weeklyConclusion === 'string' ? value.weeklyConclusion : '',
       nextWeekAdjustment: typeof value.nextWeekAdjustment === 'string' ? value.nextWeekAdjustment : '',
@@ -225,24 +254,34 @@ const matchesTaskFilter = (task: Task, filter: TaskFilter) => {
   return task.status === 'done';
 };
 
-const matchesSearch = (task: Task, query: string, categoryList: Category[]) => {
+const matchesSearch = (task: Task, query: string, categoryList: Category[], projectList: ProjectLane[]) => {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return true;
   const categoryName = getCategory(categoryList, task.category).name;
-  const projectName = projectMap[task.projectId]?.name ?? '';
+  const projectName = toMap(projectList)[task.projectId]?.name ?? '';
   return [task.title, task.location, task.detail, task.standard, task.dependency, categoryName, projectName]
     .join(' ')
     .toLowerCase()
     .includes(normalized);
 };
 
+const moveArrayItem = <T,>(items: T[], index: number, direction: -1 | 1) => {
+  const nextIndex = index + direction;
+  if (nextIndex < 0 || nextIndex >= items.length) return items;
+  const next = [...items];
+  [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+  return next;
+};
+
 function AppShell({
   activeView,
+  displayDensity,
   setActiveView,
   taskList,
   children,
 }: {
   activeView: ViewId;
+  displayDensity: 'comfortable' | 'compact';
   setActiveView: (view: ViewId) => void;
   taskList: Task[];
   children: ReactNode;
@@ -251,7 +290,7 @@ function AppShell({
   const peakLoad = weeklyLoads.reduce((max, item) => Math.max(max, item.value), 0);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell density-${displayDensity}`}>
       <aside className="sidebar">
         <div className="brand-lockup">
           <div className="brand-mark">研</div>
@@ -296,9 +335,13 @@ function App() {
   const [activeView, setActiveView] = useState<ViewId>('today');
   const [taskList, setTaskList] = useState<Task[]>(initialState.taskList);
   const [categoryList, setCategoryList] = useState<Category[]>(initialState.categoryList);
+  const [projectList, setProjectList] = useState<ProjectLane[]>(initialState.projectList);
   const [widgetList, setWidgetList] = useState<Widget[]>(initialState.widgetList);
+  const [reviewMetricList, setReviewMetricList] = useState<Widget[]>(initialState.reviewMetricList);
   const [templateList, setTemplateList] = useState<FieldTemplate[]>(initialState.templateList);
   const [activePresetId, setActivePresetId] = useState<ViewPreset['id']>(initialState.activePresetId);
+  const [customPresetList, setCustomPresetList] = useState<ViewPreset[]>(initialState.customPresetList);
+  const [displayDensity, setDisplayDensity] = useState<'comfortable' | 'compact'>(initialState.displayDensity);
   const [dailyReviewNote, setDailyReviewNote] = useState(initialState.dailyReviewNote);
   const [weeklyConclusion, setWeeklyConclusion] = useState(initialState.weeklyConclusion);
   const [nextWeekAdjustment, setNextWeekAdjustment] = useState(initialState.nextWeekAdjustment);
@@ -319,11 +362,12 @@ function App() {
   const filteredTasks = useMemo(
     () =>
       taskList.filter(
-        (task) => matchesTaskFilter(task, taskFilter) && matchesSearch(task, searchQuery, categoryList),
+        (task) => matchesTaskFilter(task, taskFilter) && matchesSearch(task, searchQuery, categoryList, projectList),
       ),
-    [categoryList, searchQuery, taskFilter, taskList],
+    [categoryList, projectList, searchQuery, taskFilter, taskList],
   );
   const todayTasks = useMemo(() => getTasksForDate(filteredTasks, appDate.today), [filteredTasks]);
+  const currentProjectMap = useMemo(() => toMap(projectList), [projectList]);
 
   useEffect(() => {
     setSelectedTaskIds((current) => {
@@ -337,9 +381,13 @@ function App() {
     version: storageVersion,
     taskList,
     categoryList,
+    projectList,
     widgetList,
+    reviewMetricList,
     templateList,
     activePresetId,
+    customPresetList,
+    displayDensity,
     dailyReviewNote,
     weeklyConclusion,
     nextWeekAdjustment,
@@ -360,7 +408,7 @@ function App() {
       setSaveStatus('failed');
       setDataMessage('保存失败：浏览器存储空间可能不足，请先导出 JSON 备份。');
     }
-  }, [activePresetId, categoryList, dailyReviewNote, nextWeekAdjustment, taskList, templateList, weeklyConclusion, widgetList]);
+  }, [activePresetId, categoryList, customPresetList, dailyReviewNote, displayDensity, nextWeekAdjustment, projectList, reviewMetricList, taskList, templateList, weeklyConclusion, widgetList]);
 
   const upsertTask = (task: Task) => {
     setTaskList((current) => {
@@ -377,7 +425,7 @@ function App() {
     id: `t-${Date.now()}`,
     title: '',
     category: project?.category ?? 'writing',
-    projectId: project?.id ?? projects[0].id,
+    projectId: project?.id ?? projectList[0]?.id ?? projects[0].id,
     date: appDate.today,
     start: '09:00',
     duration: 60,
@@ -506,10 +554,83 @@ function App() {
     ]);
   };
 
-  const updateCategoryColor = (categoryId: string, color: string) => {
+  const updateCategory = (categoryId: string, changes: Partial<Category>) => {
     setCategoryList((current) =>
-      current.map((category) => (category.id === categoryId ? { ...category, color, soft: makeSoftColor(color) } : category)),
+      current.map((category) => {
+        if (category.id !== categoryId) return category;
+        const color = changes.color ?? category.color;
+        return {
+          ...category,
+          ...changes,
+          name: changes.name?.trim() || category.name,
+          color,
+          soft: makeSoftColor(color),
+        };
+      }),
     );
+  };
+
+  const deleteCategory = (categoryId: string) => {
+    const category = categoryList.find((item) => item.id === categoryId);
+    const fallback = categoryList.find((item) => item.id !== categoryId);
+    if (!category || !fallback) return;
+    const taskCount = taskList.filter((task) => task.category === categoryId).length;
+    const projectCount = projectList.filter((project) => project.category === categoryId).length;
+    if (!window.confirm(`确认删除类型“${category.name}”？${taskCount + projectCount > 0 ? `关联的 ${taskCount} 个任务和 ${projectCount} 个项目会改为“${fallback.name}”。` : '此操作会移除该类型。'}`)) return;
+    setCategoryList((current) => current.filter((item) => item.id !== categoryId));
+    setTaskList((current) => current.map((task) => (task.category === categoryId ? { ...task, category: fallback.id } : task)));
+    setProjectList((current) => current.map((project) => (project.category === categoryId ? { ...project, category: fallback.id } : project)));
+  };
+
+  const addProject = (project: ProjectLane) => {
+    const name = project.name.trim();
+    if (!name) return;
+    setProjectList((current) => [{ ...project, id: `p-custom-${Date.now()}`, name }, ...current]);
+  };
+
+  const updateProject = (projectId: string, changes: Partial<ProjectLane>) => {
+    setProjectList((current) =>
+      current.map((project) =>
+        project.id === projectId
+          ? {
+              ...project,
+              ...changes,
+              name: changes.name?.trim() || project.name,
+              progress:
+                changes.progress === undefined ? project.progress : Math.max(0, Math.min(100, Number(changes.progress))),
+            }
+          : project,
+      ),
+    );
+    setSelectedProject((current) =>
+      current?.id === projectId
+        ? {
+            ...current,
+            ...changes,
+            name: changes.name?.trim() || current.name,
+            progress:
+              changes.progress === undefined ? current.progress : Math.max(0, Math.min(100, Number(changes.progress))),
+          }
+        : current,
+    );
+  };
+
+  const deleteProject = (projectId: string) => {
+    const project = projectList.find((item) => item.id === projectId);
+    const fallback = projectList.find((item) => item.id !== projectId);
+    if (!project || !fallback) return;
+    const taskCount = taskList.filter((task) => task.projectId === projectId).length;
+    if (!window.confirm(`确认删除项目“${project.name}”？${taskCount > 0 ? `关联的 ${taskCount} 个任务会改到“${fallback.name}”。` : '此操作会移除该项目。'}`)) return;
+    setProjectList((current) => current.filter((item) => item.id !== projectId));
+    setTaskList((current) => current.map((task) => (task.projectId === projectId ? { ...task, projectId: fallback.id, category: fallback.category } : task)));
+    setSelectedProject((current) => (current?.id === projectId ? null : current));
+  };
+
+  const moveProject = (projectId: string, direction: -1 | 1) => {
+    setProjectList((current) => {
+      const index = current.findIndex((project) => project.id === projectId);
+      return index === -1 ? current : moveArrayItem(current, index, direction);
+    });
   };
 
   const toggleWidget = (widgetId: string) => {
@@ -518,10 +639,39 @@ function App() {
     );
   };
 
-  const updateTemplateFields = (templateId: string, fields: string[]) => {
-    setTemplateList((current) =>
-      current.map((template) => (template.id === templateId ? { ...template, fields } : template)),
+  const toggleReviewMetric = (metricId: string) => {
+    setReviewMetricList((current) =>
+      current.map((metric) => (metric.id === metricId ? { ...metric, visible: !metric.visible } : metric)),
     );
+  };
+
+  const addTemplate = (name: string, fields: string[]) => {
+    const trimmedName = name.trim();
+    if (!trimmedName || fields.length === 0) return;
+    setTemplateList((current) => [{ id: `tpl-custom-${Date.now()}`, name: trimmedName, fields }, ...current]);
+  };
+
+  const updateTemplate = (templateId: string, changes: Partial<FieldTemplate>) => {
+    setTemplateList((current) =>
+      current.map((template) =>
+        template.id === templateId
+          ? { ...template, ...changes, name: changes.name?.trim() || template.name, fields: changes.fields ?? template.fields }
+          : template,
+      ),
+    );
+  };
+
+  const deleteTemplate = (templateId: string) => {
+    const template = templateList.find((item) => item.id === templateId);
+    if (!template || !window.confirm(`确认删除模板“${template.name}”？`)) return;
+    setTemplateList((current) => current.filter((item) => item.id !== templateId));
+  };
+
+  const moveTemplate = (templateId: string, direction: -1 | 1) => {
+    setTemplateList((current) => {
+      const index = current.findIndex((template) => template.id === templateId);
+      return index === -1 ? current : moveArrayItem(current, index, direction);
+    });
   };
 
   const applyPreset = (preset: ViewPreset) => {
@@ -532,6 +682,19 @@ function App() {
         visible: preset.widgetIds.includes(widget.id),
       })),
     );
+  };
+
+  const saveCurrentPreset = (name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+    const preset: ViewPreset = {
+      id: `preset-custom-${Date.now()}`,
+      name: trimmedName,
+      widgetIds: widgetList.filter((widget) => widget.visible).map((widget) => widget.id),
+      focusCategories: categoryList.map((category) => category.id),
+    };
+    setCustomPresetList((current) => [preset, ...current]);
+    setActivePresetId(preset.id);
   };
 
   const exportData = () => {
@@ -546,7 +709,7 @@ function App() {
     const header = ['标题', '项目', '分类', '日期', '开始', '预计分钟', '实际分钟', '状态', '优先级', '地点', '完成标准', '依赖', '备注'];
     const rows = taskList.map((task) => [
       task.title,
-      projectMap[task.projectId]?.name ?? task.projectId,
+      currentProjectMap[task.projectId]?.name ?? task.projectId,
       getCategory(categoryList, task.category).name,
       task.date,
       task.start,
@@ -581,7 +744,7 @@ function App() {
       `- 下周调整：${nextWeekAdjustment || '未填写'}`,
       '',
       '## 项目进展',
-      ...projects.map((project) => {
+      ...projectList.map((project) => {
         const projectTasks = taskList.filter((task) => task.projectId === project.id);
         const projectDone = projectTasks.filter((task) => task.status === 'done').length;
         return `- ${project.name}：${projectDone}/${projectTasks.length} 完成，下一步：${project.next}`;
@@ -629,9 +792,13 @@ function App() {
   const applyImportedData = (state: PersistedState) => {
     setTaskList(state.taskList);
     setCategoryList(state.categoryList);
+    setProjectList(state.projectList);
     setWidgetList(state.widgetList);
+    setReviewMetricList(state.reviewMetricList);
     setTemplateList(state.templateList);
     setActivePresetId(state.activePresetId);
+    setCustomPresetList(state.customPresetList);
+    setDisplayDensity(state.displayDensity);
     setDailyReviewNote(state.dailyReviewNote);
     setWeeklyConclusion(state.weeklyConclusion);
     setNextWeekAdjustment(state.nextWeekAdjustment);
@@ -650,7 +817,7 @@ function App() {
   };
 
   return (
-    <AppShell activeView={activeView} setActiveView={setActiveView} taskList={taskList}>
+    <AppShell activeView={activeView} displayDensity={displayDensity} setActiveView={setActiveView} taskList={taskList}>
       <TopBar
         activeView={activeView}
         searchQuery={searchQuery}
@@ -678,6 +845,8 @@ function App() {
         <TodayDashboard
           allTasks={filteredTasks}
           categoryList={categoryList}
+          projectList={projectList}
+          projectMap={currentProjectMap}
           selectedTaskIds={selectedTaskIds}
           todayTasks={todayTasks}
           widgetList={widgetList}
@@ -700,6 +869,7 @@ function App() {
         <ProjectProgress
           allTasks={filteredTasks}
           categoryList={categoryList}
+          projectList={projectList}
           onCreateProjectTask={startCreateTask}
           onSelectProject={setSelectedProject}
         />
@@ -719,6 +889,8 @@ function App() {
           allTasks={filteredTasks}
           categoryList={categoryList}
           dailyReviewNote={dailyReviewNote}
+          projectList={projectList}
+          reviewMetricList={reviewMetricList}
           nextWeekAdjustment={nextWeekAdjustment}
           weeklyConclusion={weeklyConclusion}
           onDailyReviewNoteChange={setDailyReviewNote}
@@ -730,6 +902,10 @@ function App() {
         <SettingsView
           activePresetId={activePresetId}
           categoryList={categoryList}
+          customPresetList={customPresetList}
+          displayDensity={displayDensity}
+          projectList={projectList}
+          reviewMetricList={reviewMetricList}
           templateList={templateList}
           widgetList={widgetList}
           dataMessage={dataMessage}
@@ -738,25 +914,37 @@ function App() {
           pendingImportMessage={pendingImportMessage}
           saveStatus={saveStatus}
           onAddCategory={addCategory}
+          onAddProject={addProject}
+          onAddTemplate={addTemplate}
           onCancelImport={() => {
             setPendingImport(null);
             setPendingImportMessage('');
           }}
           onConfirmImport={applyImportedData}
           onApplyPreset={applyPreset}
+          onDeleteCategory={deleteCategory}
+          onDeleteProject={deleteProject}
+          onDeleteTemplate={deleteTemplate}
           onExportCsv={exportCsv}
           onExportData={exportData}
           onExportMarkdownReport={exportMarkdownReport}
           onImportData={importData}
           onManualBackup={manualBackup}
+          onMoveProject={moveProject}
+          onMoveTemplate={moveTemplate}
           onRestoreDefaultData={restoreDefaultData}
+          onSaveCurrentPreset={saveCurrentPreset}
+          onSetDisplayDensity={setDisplayDensity}
+          onToggleReviewMetric={toggleReviewMetric}
           onToggleWidget={toggleWidget}
-          onUpdateCategoryColor={updateCategoryColor}
-          onUpdateTemplateFields={updateTemplateFields}
+          onUpdateCategory={updateCategory}
+          onUpdateProject={updateProject}
+          onUpdateTemplate={updateTemplate}
         />
       )}
       <TaskDrawer
         categoryList={categoryList}
+        projectMap={currentProjectMap}
         task={selectedTask}
         onClose={() => setSelectedTask(null)}
         onDelete={deleteTask}
@@ -775,6 +963,8 @@ function App() {
         <TaskForm
           categoryList={categoryList}
           initialTask={creatingTaskDraft}
+          projectList={projectList}
+          templateList={templateList}
           task={editingTask}
           onCancel={() => {
             setEditingTask(null);
@@ -934,6 +1124,8 @@ function BatchToolbar({
 function TodayDashboard({
   allTasks,
   categoryList,
+  projectList,
+  projectMap,
   selectedTaskIds,
   todayTasks,
   widgetList,
@@ -943,6 +1135,8 @@ function TodayDashboard({
 }: {
   allTasks: Task[];
   categoryList: Category[];
+  projectList: ProjectLane[];
+  projectMap: Record<string, ProjectLane>;
   selectedTaskIds: Set<string>;
   todayTasks: Task[];
   widgetList: Widget[];
@@ -952,7 +1146,7 @@ function TodayDashboard({
 }) {
   const todayMetrics = getTodayMetrics(allTasks, appDate.today);
   const energySummary = getEnergySummary(todayTasks);
-  const activeProjects = projects.filter((project) => getTasksForProject(todayTasks, project.id).length > 0);
+  const activeProjects = projectList.filter((project) => getTasksForProject(todayTasks, project.id).length > 0);
   const reminders = allTasks
     .filter((task) => task.status === 'blocked' || task.status === 'delayed' || task.date === appDate.today)
     .slice(0, 3);
@@ -1026,7 +1220,7 @@ function TodayDashboard({
                     <div>
                       <strong>{task.title}</strong>
                       <small>
-                        {task.duration} 分钟 · {projectMap[task.projectId].name} · {statusLabel[task.status]} · 优先级
+                        {task.duration} 分钟 · {projectMap[task.projectId]?.name ?? task.projectId} · {statusLabel[task.status]} · 优先级
                         {task.priority ?? '未设'}
                       </small>
                     </div>
@@ -1072,7 +1266,7 @@ function TodayDashboard({
                 <Reminder
                   key={task.id}
                   title={task.title}
-                  meta={`${task.date} ${task.start} · ${projectMap[task.projectId].name}`}
+                  meta={`${task.date} ${task.start} · ${projectMap[task.projectId]?.name ?? task.projectId}`}
                   tone={task.status === 'blocked' ? 'hot' : task.status === 'delayed' ? 'warn' : 'calm'}
                 />
               ))
@@ -1230,15 +1424,17 @@ function WeeklyMatrix({
 function ProjectProgress({
   allTasks,
   categoryList,
+  projectList,
   onCreateProjectTask,
   onSelectProject,
 }: {
   allTasks: Task[];
   categoryList: Category[];
+  projectList: ProjectLane[];
   onCreateProjectTask: (project: ProjectLane) => void;
   onSelectProject: (project: ProjectLane) => void;
 }) {
-  const visibleProjects = projects.filter((project) => getTasksForProject(allTasks, project.id).length > 0);
+  const visibleProjects = projectList;
 
   return (
     <section className="page-grid">
@@ -1354,6 +1550,8 @@ function Review({
   allTasks,
   categoryList,
   dailyReviewNote,
+  projectList,
+  reviewMetricList,
   weeklyConclusion,
   nextWeekAdjustment,
   onDailyReviewNoteChange,
@@ -1363,15 +1561,18 @@ function Review({
   allTasks: Task[];
   categoryList: Category[];
   dailyReviewNote: string;
+  projectList: ProjectLane[];
+  reviewMetricList: Widget[];
   weeklyConclusion: string;
   nextWeekAdjustment: string;
   onDailyReviewNoteChange: (value: string) => void;
   onWeeklyConclusionChange: (value: string) => void;
   onNextWeekAdjustmentChange: (value: string) => void;
 }) {
-  const stats = getReviewStats(allTasks, categoryList, projects);
+  const stats = getReviewStats(allTasks, categoryList, projectList);
   const highEnergyLoads = getHighEnergyLoads(allTasks, weekDays);
   const suggestions = getReviewSuggestions(allTasks, weekDays);
+  const isMetricVisible = (metricId: string) => reviewMetricList.find((metric) => metric.id === metricId)?.visible;
   const suggestionIcons = {
     writing: PenLine,
     experiment: Beaker,
@@ -1388,91 +1589,107 @@ function Review({
       <div className="span-12 review-context">
         当前复盘基于顶部搜索和状态筛选后的任务数据。
       </div>
-      <div className="span-4 panel stat-panel">
-        <Metric value={`${stats.completionRate}%`} label="完成率" />
-        <div className="donut" style={{ '--value': `${stats.completionRate}%` } as CSSProperties}>
-          <span>{stats.completionRate}</span>
+      {isMetricVisible('summary') && (
+        <>
+          <div className="span-4 panel stat-panel">
+            <Metric value={`${stats.completionRate}%`} label="完成率" />
+            <div className="donut" style={{ '--value': `${stats.completionRate}%` } as CSSProperties}>
+              <span>{stats.completionRate}</span>
+            </div>
+          </div>
+          <div className="span-4 panel stat-panel">
+            <Metric value={`${stats.delayRate}%`} label="延期率" tone="warn" />
+            <div className="reason-bars">
+              {(stats.reasons.length ? stats.reasons : [{ label: '暂无延期', value: 0 }]).map((reason) => (
+                <ReasonBar key={reason.label} label={reason.label} value={reason.value} />
+              ))}
+            </div>
+          </div>
+          <div className="span-4 panel stat-panel">
+            <Metric value={`${stats.blocked}`} label="阻塞任务" tone={stats.blocked > 0 ? 'warn' : undefined} />
+            <Metric value={`${stats.totalHours}h`} label="总投入" />
+          </div>
+          <div className="span-6 panel">
+            <PanelTitle icon={CalendarCheck} title="每日复盘" />
+            <div className="review-summary">
+              <strong>{stats.dailySummary}</strong>
+              <span>完成 {stats.completed} 个，延期/阻塞 {stats.delayed} 个，高能量任务 {stats.energyDistribution.find((item) => item.label.startsWith('高'))?.value ?? 0} 个。</span>
+            </div>
+          </div>
+          <div className="span-6 panel">
+            <PanelTitle icon={CalendarDays} title="每周复盘" />
+            <div className="review-summary">
+              <strong>{stats.weeklySummary}</strong>
+              <span>论文投入 {stats.writingHours}h，当前筛选任务共 {stats.taskCount} 个。</span>
+            </div>
+          </div>
+        </>
+      )}
+      {isMetricVisible('distribution') && (
+        <>
+          <div className="span-6 panel">
+            <PanelTitle icon={Tags} title="分类投入" />
+            <div className="review-bars">
+              {stats.categoryDistribution.map((item) => (
+                <ReviewBar key={item.category.id} label={item.category.name} value={item.percent} meta={`${Math.round(item.minutes / 60 * 10) / 10}h`} />
+              ))}
+            </div>
+          </div>
+          <div className="span-6 panel">
+            <PanelTitle icon={Kanban} title="项目投入" />
+            <div className="review-bars">
+              {stats.projectDistribution.map((item) => (
+                <ReviewBar key={item.project.id} label={item.project.name} value={item.percent} meta={`${Math.round(item.minutes / 60 * 10) / 10}h`} />
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+      {isMetricVisible('energy') && (
+        <div className="span-12 panel">
+          <PanelTitle icon={Brain} title="高脑力任务负荷" />
+          <div className="matrix-footer">
+            {highEnergyLoads.map((item) => (
+              <LoadChip key={item.label} label={item.label} value={Math.min(100, item.value * 34)} />
+            ))}
+          </div>
         </div>
-      </div>
-      <div className="span-4 panel stat-panel">
-        <Metric value={`${stats.delayRate}%`} label="延期率" tone="warn" />
-        <div className="reason-bars">
-          {(stats.reasons.length ? stats.reasons : [{ label: '暂无延期', value: 0 }]).map((reason) => (
-            <ReasonBar key={reason.label} label={reason.label} value={reason.value} />
-          ))}
+      )}
+      {isMetricVisible('insights') && (
+        <>
+          <div className="span-6 panel">
+            <PanelTitle icon={AlertTriangle} title="最常延期的任务类型" />
+            <div className="insight-list">
+              {(stats.delayedByCategory.length ? stats.delayedByCategory : [{ label: '暂无延期类型', value: 0 }]).map((item) => (
+                <InsightItem key={item.label} label={item.label} value={`${item.value} 个`} />
+              ))}
+            </div>
+          </div>
+          <div className="span-6 panel">
+            <PanelTitle icon={Kanban} title="最容易阻塞的项目" />
+            <div className="insight-list">
+              {(stats.blockedByProject.length ? stats.blockedByProject : [{ label: '暂无阻塞项目', value: 0 }]).map((item) => (
+                <InsightItem key={item.label} label={item.label} value={`${item.value} 个`} />
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+      {isMetricVisible('suggestions') && (
+        <div className="span-12 panel">
+          <PanelTitle icon={SlidersHorizontal} title="下周建议" />
+          <div className="suggestion-grid">
+            {suggestions.map((suggestion) => (
+              <Suggestion
+                key={suggestion.title}
+                icon={suggestionIcons[suggestion.type]}
+                title={suggestion.title}
+                text={suggestion.text}
+              />
+            ))}
+          </div>
         </div>
-      </div>
-      <div className="span-4 panel stat-panel">
-        <Metric value={`${stats.blocked}`} label="阻塞任务" tone={stats.blocked > 0 ? 'warn' : undefined} />
-        <Metric value={`${stats.totalHours}h`} label="总投入" />
-      </div>
-      <div className="span-6 panel">
-        <PanelTitle icon={CalendarCheck} title="每日复盘" />
-        <div className="review-summary">
-          <strong>{stats.dailySummary}</strong>
-          <span>完成 {stats.completed} 个，延期/阻塞 {stats.delayed} 个，高能量任务 {stats.energyDistribution.find((item) => item.label.startsWith('高'))?.value ?? 0} 个。</span>
-        </div>
-      </div>
-      <div className="span-6 panel">
-        <PanelTitle icon={CalendarDays} title="每周复盘" />
-        <div className="review-summary">
-          <strong>{stats.weeklySummary}</strong>
-          <span>论文投入 {stats.writingHours}h，当前筛选任务共 {stats.taskCount} 个。</span>
-        </div>
-      </div>
-      <div className="span-6 panel">
-        <PanelTitle icon={Tags} title="分类投入" />
-        <div className="review-bars">
-          {stats.categoryDistribution.map((item) => (
-            <ReviewBar key={item.category.id} label={item.category.name} value={item.percent} meta={`${Math.round(item.minutes / 60 * 10) / 10}h`} />
-          ))}
-        </div>
-      </div>
-      <div className="span-6 panel">
-        <PanelTitle icon={Kanban} title="项目投入" />
-        <div className="review-bars">
-          {stats.projectDistribution.map((item) => (
-            <ReviewBar key={item.project.id} label={item.project.name} value={item.percent} meta={`${Math.round(item.minutes / 60 * 10) / 10}h`} />
-          ))}
-        </div>
-      </div>
-      <div className="span-12 panel">
-        <PanelTitle icon={Brain} title="高脑力任务负荷" />
-        <div className="matrix-footer">
-          {highEnergyLoads.map((item) => (
-            <LoadChip key={item.label} label={item.label} value={Math.min(100, item.value * 34)} />
-          ))}
-        </div>
-      </div>
-      <div className="span-6 panel">
-        <PanelTitle icon={AlertTriangle} title="最常延期的任务类型" />
-        <div className="insight-list">
-          {(stats.delayedByCategory.length ? stats.delayedByCategory : [{ label: '暂无延期类型', value: 0 }]).map((item) => (
-            <InsightItem key={item.label} label={item.label} value={`${item.value} 个`} />
-          ))}
-        </div>
-      </div>
-      <div className="span-6 panel">
-        <PanelTitle icon={Kanban} title="最容易阻塞的项目" />
-        <div className="insight-list">
-          {(stats.blockedByProject.length ? stats.blockedByProject : [{ label: '暂无阻塞项目', value: 0 }]).map((item) => (
-            <InsightItem key={item.label} label={item.label} value={`${item.value} 个`} />
-          ))}
-        </div>
-      </div>
-      <div className="span-12 panel">
-        <PanelTitle icon={SlidersHorizontal} title="下周建议" />
-        <div className="suggestion-grid">
-          {suggestions.map((suggestion) => (
-            <Suggestion
-              key={suggestion.title}
-              icon={suggestionIcons[suggestion.type]}
-              title={suggestion.title}
-              text={suggestion.text}
-            />
-          ))}
-        </div>
-      </div>
+      )}
       <div className="span-12 panel">
         <PanelTitle icon={PenLine} title="手写复盘" />
         <div className="review-note-grid">
@@ -1497,6 +1714,10 @@ function Review({
 function SettingsView({
   activePresetId,
   categoryList,
+  customPresetList,
+  displayDensity,
+  projectList,
+  reviewMetricList,
   templateList,
   widgetList,
   dataMessage,
@@ -1505,21 +1726,36 @@ function SettingsView({
   pendingImportMessage,
   saveStatus,
   onAddCategory,
+  onAddProject,
+  onAddTemplate,
   onApplyPreset,
   onCancelImport,
   onConfirmImport,
+  onDeleteCategory,
+  onDeleteProject,
+  onDeleteTemplate,
   onExportCsv,
   onExportData,
   onExportMarkdownReport,
   onImportData,
   onManualBackup,
+  onMoveProject,
+  onMoveTemplate,
   onRestoreDefaultData,
+  onSaveCurrentPreset,
+  onSetDisplayDensity,
+  onToggleReviewMetric,
   onToggleWidget,
-  onUpdateCategoryColor,
-  onUpdateTemplateFields,
+  onUpdateCategory,
+  onUpdateProject,
+  onUpdateTemplate,
 }: {
   activePresetId: string;
   categoryList: Category[];
+  customPresetList: ViewPreset[];
+  displayDensity: 'comfortable' | 'compact';
+  projectList: ProjectLane[];
+  reviewMetricList: Widget[];
   templateList: FieldTemplate[];
   widgetList: Widget[];
   dataMessage: string;
@@ -1528,21 +1764,46 @@ function SettingsView({
   pendingImportMessage: string;
   saveStatus: SaveStatus;
   onAddCategory: (name: string, color: string) => void;
+  onAddProject: (project: ProjectLane) => void;
+  onAddTemplate: (name: string, fields: string[]) => void;
   onApplyPreset: (preset: ViewPreset) => void;
   onCancelImport: () => void;
   onConfirmImport: (state: PersistedState) => void;
+  onDeleteCategory: (categoryId: string) => void;
+  onDeleteProject: (projectId: string) => void;
+  onDeleteTemplate: (templateId: string) => void;
   onExportCsv: () => void;
   onExportData: () => void;
   onExportMarkdownReport: () => void;
   onImportData: (file: File) => void;
   onManualBackup: () => void;
+  onMoveProject: (projectId: string, direction: -1 | 1) => void;
+  onMoveTemplate: (templateId: string, direction: -1 | 1) => void;
   onRestoreDefaultData: () => void;
+  onSaveCurrentPreset: (name: string) => void;
+  onSetDisplayDensity: (density: 'comfortable' | 'compact') => void;
+  onToggleReviewMetric: (metricId: string) => void;
   onToggleWidget: (widgetId: string) => void;
-  onUpdateCategoryColor: (categoryId: string, color: string) => void;
-  onUpdateTemplateFields: (templateId: string, fields: string[]) => void;
+  onUpdateCategory: (categoryId: string, changes: Partial<Category>) => void;
+  onUpdateProject: (projectId: string, changes: Partial<ProjectLane>) => void;
+  onUpdateTemplate: (templateId: string, changes: Partial<FieldTemplate>) => void;
 }) {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryColor, setNewCategoryColor] = useState('#3f6f8f');
+  const [presetName, setPresetName] = useState('');
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [newTemplateFields, setNewTemplateFields] = useState('目标、完成标准、依赖');
+  const [newProjectDraft, setNewProjectDraft] = useState({
+    name: '',
+    category: categoryList[0]?.id ?? 'writing',
+    stage: '计划中',
+    status: 'not-started' as ProjectStatus,
+    deadline: appDate.today,
+    progress: 0,
+    next: '',
+    blocker: '暂无',
+    cadence: '每周推进',
+  });
 
   const submitCategory = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1550,10 +1811,36 @@ function SettingsView({
     setNewCategoryName('');
   };
 
+  const submitProject = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onAddProject({
+      ...newProjectDraft,
+      id: '',
+      milestones: [],
+      trend: [Number(newProjectDraft.progress)],
+    });
+    setNewProjectDraft((current) => ({ ...current, name: '', next: '', progress: 0 }));
+  };
+
+  const submitTemplate = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onAddTemplate(newTemplateName, parseDelimitedFields(newTemplateFields));
+    setNewTemplateName('');
+    setNewTemplateFields('目标、完成标准、依赖');
+  };
+
+  const submitPreset = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onSaveCurrentPreset(presetName);
+    setPresetName('');
+  };
+
+  const presetList = [...viewPresets, ...customPresetList];
+
   return (
     <section className="page-grid">
       <div className="span-5 panel">
-        <PanelTitle icon={SlidersHorizontal} title="任务类型颜色" />
+        <PanelTitle icon={SlidersHorizontal} title="任务类型" />
         <div className="settings-list">
           {categoryList.map((category) => (
             <div className="setting-row" key={category.id}>
@@ -1562,10 +1849,23 @@ function SettingsView({
                 className="color-input"
                 type="color"
                 value={category.color}
-                onChange={(event) => onUpdateCategoryColor(category.id, event.target.value)}
+                onChange={(event) => onUpdateCategory(category.id, { color: event.target.value })}
               />
-              <strong>{category.name}</strong>
+              <input
+                aria-label={`${category.name}名称`}
+                value={category.name}
+                onChange={(event) => onUpdateCategory(category.id, { name: event.target.value })}
+              />
               <span>{category.color}</span>
+              <button
+                aria-label={`删除${category.name}`}
+                className="icon-button"
+                disabled={categoryList.length <= 1}
+                onClick={() => onDeleteCategory(category.id)}
+                type="button"
+              >
+                <Trash2 size={16} />
+              </button>
             </div>
           ))}
         </div>
@@ -1588,22 +1888,133 @@ function SettingsView({
         </form>
       </div>
       <div className="span-7 panel">
-        <PanelTitle icon={Settings} title="字段模板" />
-        <div className="template-grid">
-          {templateList.map((template) => (
-            <TemplateCard
-              key={template.id}
-              title={template.name}
-              fields={template.fields}
-              onChange={(fields) => onUpdateTemplateFields(template.id, fields)}
+        <PanelTitle icon={Kanban} title="项目管理" />
+        <div className="project-settings-list">
+          {projectList.map((project, index) => (
+            <ProjectSettingsCard
+              categoryList={categoryList}
+              isFirst={index === 0}
+              isLast={index === projectList.length - 1}
+              key={project.id}
+              project={project}
+              projectCount={projectList.length}
+              onDelete={() => onDeleteProject(project.id)}
+              onMove={(direction) => onMoveProject(project.id, direction)}
+              onUpdate={(changes) => onUpdateProject(project.id, changes)}
             />
           ))}
         </div>
+        <form className="project-add-form" onSubmit={submitProject}>
+          <input
+            placeholder="新增项目名称"
+            value={newProjectDraft.name}
+            onChange={(event) => setNewProjectDraft((current) => ({ ...current, name: event.target.value }))}
+          />
+          <select
+            value={newProjectDraft.category}
+            onChange={(event) => setNewProjectDraft((current) => ({ ...current, category: event.target.value }))}
+          >
+            {categoryList.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={newProjectDraft.status}
+            onChange={(event) => setNewProjectDraft((current) => ({ ...current, status: event.target.value as ProjectStatus }))}
+          >
+            {Object.entries(projectStatusLabel).map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <input
+            type="date"
+            value={newProjectDraft.deadline}
+            onChange={(event) => setNewProjectDraft((current) => ({ ...current, deadline: event.target.value }))}
+          />
+          <input
+            placeholder="阶段"
+            value={newProjectDraft.stage}
+            onChange={(event) => setNewProjectDraft((current) => ({ ...current, stage: event.target.value }))}
+          />
+          <input
+            min={0}
+            max={100}
+            type="number"
+            value={newProjectDraft.progress}
+            onChange={(event) => setNewProjectDraft((current) => ({ ...current, progress: Number(event.target.value) }))}
+          />
+          <input
+            placeholder="下一步"
+            value={newProjectDraft.next}
+            onChange={(event) => setNewProjectDraft((current) => ({ ...current, next: event.target.value }))}
+          />
+          <input
+            placeholder="节奏"
+            value={newProjectDraft.cadence}
+            onChange={(event) => setNewProjectDraft((current) => ({ ...current, cadence: event.target.value }))}
+          />
+          <button className="secondary-action" type="submit">
+            新增项目
+          </button>
+        </form>
       </div>
       <div className="span-12 panel">
-        <PanelTitle icon={LayoutDashboard} title="首页模块与预设布局" />
+        <PanelTitle icon={Settings} title="字段模板" />
+        <div className="template-grid">
+          {templateList.map((template, index) => (
+            <TemplateCard
+              isFirst={index === 0}
+              isLast={index === templateList.length - 1}
+              key={template.id}
+              title={template.name}
+              fields={template.fields}
+              onChange={(fields) => onUpdateTemplate(template.id, { fields })}
+              onDelete={() => onDeleteTemplate(template.id)}
+              onMove={(direction) => onMoveTemplate(template.id, direction)}
+              onRename={(name) => onUpdateTemplate(template.id, { name })}
+            />
+          ))}
+        </div>
+        <form className="inline-form template-add-form" onSubmit={submitTemplate}>
+          <input
+            placeholder="新增模板名称"
+            value={newTemplateName}
+            onChange={(event) => setNewTemplateName(event.target.value)}
+          />
+          <input
+            placeholder="字段，用顿号或逗号分隔"
+            value={newTemplateFields}
+            onChange={(event) => setNewTemplateFields(event.target.value)}
+          />
+          <button className="secondary-action" type="submit">
+            新增模板
+          </button>
+        </form>
+      </div>
+      <div className="span-12 panel">
+        <PanelTitle icon={LayoutDashboard} title="视图与显示" />
+        <div className="density-row">
+          <button
+            className={displayDensity === 'comfortable' ? 'preset is-active' : 'preset'}
+            onClick={() => onSetDisplayDensity('comfortable')}
+            type="button"
+          >
+            舒适密度
+          </button>
+          <button
+            className={displayDensity === 'compact' ? 'preset is-active' : 'preset'}
+            onClick={() => onSetDisplayDensity('compact')}
+            type="button"
+          >
+            紧凑密度
+          </button>
+        </div>
         <div className="preset-row">
-          {viewPresets.map((preset) => (
+          {presetList.map((preset) => (
             <button
               className={activePresetId === preset.id ? 'preset is-active' : 'preset'}
               key={preset.id}
@@ -1614,11 +2025,29 @@ function SettingsView({
             </button>
           ))}
         </div>
+        <form className="inline-form preset-save-form" onSubmit={submitPreset}>
+          <input
+            placeholder="保存当前首页模块为预设"
+            value={presetName}
+            onChange={(event) => setPresetName(event.target.value)}
+          />
+          <button className="secondary-action" type="submit">
+            保存预设
+          </button>
+        </form>
         <div className="widget-row">
           {widgetList.map((widget) => (
             <label className="widget-toggle" key={widget.id}>
               <input checked={widget.visible} onChange={() => onToggleWidget(widget.id)} type="checkbox" />
               <span>{widget.name}</span>
+            </label>
+          ))}
+        </div>
+        <div className="widget-row">
+          {reviewMetricList.map((metric) => (
+            <label className="widget-toggle" key={metric.id}>
+              <input checked={metric.visible} onChange={() => onToggleReviewMetric(metric.id)} type="checkbox" />
+              <span>{metric.name}</span>
             </label>
           ))}
         </div>
@@ -1694,15 +2123,86 @@ function SettingsView({
   );
 }
 
+function ProjectSettingsCard({
+  categoryList,
+  isFirst,
+  isLast,
+  project,
+  projectCount,
+  onDelete,
+  onMove,
+  onUpdate,
+}: {
+  categoryList: Category[];
+  isFirst: boolean;
+  isLast: boolean;
+  project: ProjectLane;
+  projectCount: number;
+  onDelete: () => void;
+  onMove: (direction: -1 | 1) => void;
+  onUpdate: (changes: Partial<ProjectLane>) => void;
+}) {
+  return (
+    <div className="project-settings-card">
+      <div className="project-settings-head">
+        <input aria-label="项目名称" value={project.name} onChange={(event) => onUpdate({ name: event.target.value })} />
+        <div className="mini-actions">
+          <button aria-label="上移项目" className="icon-button" disabled={isFirst} onClick={() => onMove(-1)} type="button">
+            <ArrowUp size={15} />
+          </button>
+          <button aria-label="下移项目" className="icon-button" disabled={isLast} onClick={() => onMove(1)} type="button">
+            <ArrowDown size={15} />
+          </button>
+          <button aria-label="删除项目" className="icon-button" disabled={projectCount <= 1} onClick={onDelete} type="button">
+            <Trash2 size={15} />
+          </button>
+        </div>
+      </div>
+      <div className="project-settings-grid">
+        <select value={project.category} onChange={(event) => onUpdate({ category: event.target.value })}>
+          {categoryList.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+        <select value={project.status} onChange={(event) => onUpdate({ status: event.target.value as ProjectStatus })}>
+          {Object.entries(projectStatusLabel).map(([id, label]) => (
+            <option key={id} value={id}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <input value={project.deadline} onChange={(event) => onUpdate({ deadline: event.target.value })} type="date" />
+        <input
+          max={100}
+          min={0}
+          type="number"
+          value={project.progress}
+          onChange={(event) => onUpdate({ progress: Number(event.target.value) })}
+        />
+        <input value={project.stage} onChange={(event) => onUpdate({ stage: event.target.value })} />
+        <input value={project.cadence} onChange={(event) => onUpdate({ cadence: event.target.value })} />
+        <input className="span-wide" value={project.next} onChange={(event) => onUpdate({ next: event.target.value })} />
+        <input className="span-wide" value={project.blocker} onChange={(event) => onUpdate({ blocker: event.target.value })} />
+      </div>
+    </div>
+  );
+}
+
 function TaskForm({
   categoryList,
   initialTask,
+  projectList,
+  templateList,
   task,
   onCancel,
   onSave,
 }: {
   categoryList: Category[];
   initialTask: Task | null;
+  projectList: ProjectLane[];
+  templateList: FieldTemplate[];
   task: Task | null;
   onCancel: () => void;
   onSave: (task: Task) => void;
@@ -1713,7 +2213,7 @@ function TaskForm({
       id: `t-${Date.now()}`,
       title: '',
       category: 'writing',
-      projectId: projects[0].id,
+      projectId: projectList[0]?.id ?? projects[0].id,
       date: appDate.today,
       start: '09:00',
       duration: 60,
@@ -1731,6 +2231,16 @@ function TaskForm({
 
   const updateDraft = <K extends keyof Task>(key: K, value: Task[K]) => {
     setDraft((current) => ({ ...current, [key]: value }));
+  };
+
+  const applyTemplate = (templateId: string) => {
+    const template = templateList.find((item) => item.id === templateId);
+    if (!template) return;
+    const templateText = template.fields.map((field) => `${field}：`).join('\n');
+    setDraft((current) => ({
+      ...current,
+      detail: current.detail.trim() ? `${current.detail.trim()}\n${templateText}` : templateText,
+    }));
   };
 
   const submitTask = (event: FormEvent<HTMLFormElement>) => {
@@ -1798,13 +2308,34 @@ function TaskForm({
         <label className="field">
           <span>所属项目</span>
           <select value={draft.projectId} onChange={(event) => updateDraft('projectId', event.target.value)}>
-            {projects.map((project) => (
+            {projectList.map((project) => (
               <option key={project.id} value={project.id}>
                 {project.name}
               </option>
             ))}
           </select>
         </label>
+        {!task && (
+          <label className="field">
+            <span>套用模板</span>
+            <select
+              defaultValue=""
+              onChange={(event) => {
+                if (event.target.value) {
+                  applyTemplate(event.target.value);
+                  event.currentTarget.value = '';
+                }
+              }}
+            >
+              <option value="">选择字段模板</option>
+              {templateList.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="field">
           <span>日期</span>
           <input value={draft.date} onChange={(event) => updateDraft('date', event.target.value)} type="date" />
@@ -1908,6 +2439,7 @@ function TaskForm({
 
 function TaskDrawer({
   categoryList,
+  projectMap,
   task,
   onClose,
   onDelete,
@@ -1916,6 +2448,7 @@ function TaskDrawer({
   onStatusChange,
 }: {
   categoryList: Category[];
+  projectMap: Record<string, ProjectLane>;
   task: Task | null;
   onClose: () => void;
   onDelete: (taskId: string) => void;
@@ -1978,7 +2511,7 @@ function TaskDrawer({
         </button>
       </div>
       <div className="drawer-grid">
-        <InfoCell label="所属项目" value={projectMap[task.projectId].name} />
+        <InfoCell label="所属项目" value={projectMap[task.projectId]?.name ?? task.projectId} />
         <InfoCell label="任务状态" value={statusLabel[task.status]} alert={task.status === 'blocked' || task.status === 'delayed'} />
         <InfoCell label="预计时长" value={`${task.duration} 分钟`} />
         <InfoCell label="实际耗时" value={task.actualDuration ? `${task.actualDuration} 分钟` : '未记录'} />
@@ -2330,10 +2863,41 @@ function Suggestion({
   );
 }
 
-function TemplateCard({ title, fields, onChange }: { title: string; fields: string[]; onChange: (fields: string[]) => void }) {
+function TemplateCard({
+  fields,
+  isFirst,
+  isLast,
+  title,
+  onChange,
+  onDelete,
+  onMove,
+  onRename,
+}: {
+  fields: string[];
+  isFirst: boolean;
+  isLast: boolean;
+  title: string;
+  onChange: (fields: string[]) => void;
+  onDelete: () => void;
+  onMove: (direction: -1 | 1) => void;
+  onRename: (name: string) => void;
+}) {
   return (
     <div className="template-card">
-      <strong>{title}</strong>
+      <div className="template-card-head">
+        <input aria-label="模板名称" value={title} onChange={(event) => onRename(event.target.value)} />
+        <div className="mini-actions">
+          <button aria-label="上移模板" className="icon-button" disabled={isFirst} onClick={() => onMove(-1)} type="button">
+            <ArrowUp size={15} />
+          </button>
+          <button aria-label="下移模板" className="icon-button" disabled={isLast} onClick={() => onMove(1)} type="button">
+            <ArrowDown size={15} />
+          </button>
+          <button aria-label="删除模板" className="icon-button" onClick={onDelete} type="button">
+            <Trash2 size={15} />
+          </button>
+        </div>
+      </div>
       <div>
         {fields.map((field) => (
           <span key={field}>{field}</span>
@@ -2341,14 +2905,7 @@ function TemplateCard({ title, fields, onChange }: { title: string; fields: stri
       </div>
       <input
         value={fields.join('、')}
-        onChange={(event) =>
-          onChange(
-            event.target.value
-              .split(/[、,，]/)
-              .map((field) => field.trim())
-              .filter(Boolean),
-          )
-        }
+        onChange={(event) => onChange(parseDelimitedFields(event.target.value))}
       />
     </div>
   );
