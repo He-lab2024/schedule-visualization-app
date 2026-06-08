@@ -99,7 +99,7 @@ type ActionNotice = {
   onAction?: () => void;
 };
 
-const storageKey = 'research-schedule-dashboard-state-v1';
+const storageKey = 'research-schedule-dashboard-state-v2';
 const autoBackupKey = `${storageKey}-auto-backup`;
 const manualBackupKey = `${storageKey}-manual-backup`;
 const storageVersion = 3;
