@@ -17,12 +17,13 @@ import {
   LayoutDashboard,
   ListChecks,
   PenLine,
+  Plus,
   Search,
   Settings,
   SlidersHorizontal,
 } from 'lucide-react';
-import type { CSSProperties, ComponentType, ReactNode } from 'react';
-import { appDate, categories, fieldTemplates, projects, tasks, viewPresets, weekDays, widgets } from './mockData';
+import type { CSSProperties, ComponentType, FormEvent, ReactNode } from 'react';
+import { appDate, categories, fieldTemplates, projects, tasks as initialTasks, viewPresets, weekDays, widgets } from './mockData';
 import {
   getCategoryMap,
   getEnergySummary,
@@ -35,7 +36,7 @@ import {
   statusLabel,
   toMap,
 } from './selectors';
-import type { CategoryId, ProjectLane, Task, ViewId } from './types';
+import type { CategoryId, ProjectLane, Task, TaskStatus, ViewId } from './types';
 
 const navItems: Array<{ id: ViewId; label: string; icon: ComponentType<{ size?: number }> }> = [
   { id: 'today', label: '今日驾驶舱', icon: LayoutDashboard },
@@ -58,13 +59,15 @@ const accentStyle = (categoryId: CategoryId) =>
 function AppShell({
   activeView,
   setActiveView,
+  taskList,
   children,
 }: {
   activeView: ViewId;
   setActiveView: (view: ViewId) => void;
+  taskList: Task[];
   children: ReactNode;
 }) {
-  const weeklyLoads = getWeeklyLoads(tasks, weekDays);
+  const weeklyLoads = getWeeklyLoads(taskList, weekDays);
   const peakLoad = weeklyLoads.reduce((max, item) => Math.max(max, item.value), 0);
 
   return (
@@ -109,25 +112,64 @@ function AppShell({
 
 function App() {
   const [activeView, setActiveView] = useState<ViewId>('today');
+  const [taskList, setTaskList] = useState<Task[]>(initialTasks);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
 
-  const todayTasks = useMemo(() => getTasksForDate(tasks, appDate.today), []);
+  const todayTasks = useMemo(() => getTasksForDate(taskList, appDate.today), [taskList]);
+
+  const upsertTask = (task: Task) => {
+    setTaskList((current) => {
+      const exists = current.some((item) => item.id === task.id);
+      return exists ? current.map((item) => (item.id === task.id ? task : item)) : [task, ...current];
+    });
+    setSelectedTask(task);
+    setEditingTask(null);
+    setIsCreatingTask(false);
+  };
+
+  const updateTaskStatus = (taskId: string, status: TaskStatus) => {
+    setTaskList((current) =>
+      current.map((task) => {
+        if (task.id !== taskId) return task;
+        const nextTask = { ...task, status };
+        setSelectedTask(nextTask);
+        return nextTask;
+      }),
+    );
+  };
 
   return (
-    <AppShell activeView={activeView} setActiveView={setActiveView}>
-      <TopBar activeView={activeView} />
-      {activeView === 'today' && <TodayDashboard todayTasks={todayTasks} onSelectTask={setSelectedTask} />}
-      {activeView === 'week' && <WeeklyMatrix onSelectTask={setSelectedTask} />}
-      {activeView === 'projects' && <ProjectProgress />}
-      {activeView === 'workbench' && <Workbench onSelectTask={setSelectedTask} />}
-      {activeView === 'review' && <Review />}
+    <AppShell activeView={activeView} setActiveView={setActiveView} taskList={taskList}>
+      <TopBar activeView={activeView} onCreateTask={() => setIsCreatingTask(true)} />
+      {activeView === 'today' && <TodayDashboard allTasks={taskList} todayTasks={todayTasks} onSelectTask={setSelectedTask} />}
+      {activeView === 'week' && <WeeklyMatrix allTasks={taskList} onSelectTask={setSelectedTask} />}
+      {activeView === 'projects' && <ProjectProgress allTasks={taskList} />}
+      {activeView === 'workbench' && <Workbench allTasks={taskList} onSelectTask={setSelectedTask} />}
+      {activeView === 'review' && <Review allTasks={taskList} />}
       {activeView === 'settings' && <SettingsView />}
-      <TaskDrawer task={selectedTask} onClose={() => setSelectedTask(null)} />
+      <TaskDrawer
+        task={selectedTask}
+        onClose={() => setSelectedTask(null)}
+        onEdit={(task) => setEditingTask(task)}
+        onStatusChange={updateTaskStatus}
+      />
+      {(editingTask || isCreatingTask) && (
+        <TaskForm
+          task={editingTask}
+          onCancel={() => {
+            setEditingTask(null);
+            setIsCreatingTask(false);
+          }}
+          onSave={upsertTask}
+        />
+      )}
     </AppShell>
   );
 }
 
-function TopBar({ activeView }: { activeView: ViewId }) {
+function TopBar({ activeView, onCreateTask }: { activeView: ViewId; onCreateTask: () => void }) {
   const current = navItems.find((item) => item.id === activeView);
   return (
     <header className="topbar">
@@ -142,6 +184,10 @@ function TopBar({ activeView }: { activeView: ViewId }) {
           <Search size={16} />
           <span>论文、实验、项目、地点</span>
         </div>
+        <button className="primary-action" onClick={onCreateTask} type="button">
+          <Plus size={16} />
+          <span>新建任务</span>
+        </button>
         <button className="icon-button" type="button" aria-label="提醒">
           <Bell size={18} />
         </button>
@@ -150,11 +196,19 @@ function TopBar({ activeView }: { activeView: ViewId }) {
   );
 }
 
-function TodayDashboard({ todayTasks, onSelectTask }: { todayTasks: Task[]; onSelectTask: (task: Task) => void }) {
-  const todayMetrics = getTodayMetrics(tasks, appDate.today);
+function TodayDashboard({
+  allTasks,
+  todayTasks,
+  onSelectTask,
+}: {
+  allTasks: Task[];
+  todayTasks: Task[];
+  onSelectTask: (task: Task) => void;
+}) {
+  const todayMetrics = getTodayMetrics(allTasks, appDate.today);
   const energySummary = getEnergySummary(todayTasks);
   const activeProjects = projects.filter((project) => getTasksForProject(todayTasks, project.id).length > 0);
-  const reminders = tasks
+  const reminders = allTasks
     .filter((task) => task.status === 'blocked' || task.status === 'delayed' || task.date === appDate.today)
     .slice(0, 3);
 
@@ -218,7 +272,7 @@ function TodayDashboard({ todayTasks, onSelectTask }: { todayTasks: Task[]; onSe
         <PanelTitle icon={Gauge} title="项目状态" />
         <div className="project-stack">
           {activeProjects.map((project) => (
-            <ProjectCard key={project.id} project={project} />
+            <ProjectCard key={project.id} project={project} taskList={allTasks} />
           ))}
         </div>
       </div>
@@ -255,8 +309,8 @@ function TodayDashboard({ todayTasks, onSelectTask }: { todayTasks: Task[]; onSe
   );
 }
 
-function WeeklyMatrix({ onSelectTask }: { onSelectTask: (task: Task) => void }) {
-  const weeklyLoads = getWeeklyLoads(tasks, weekDays);
+function WeeklyMatrix({ allTasks, onSelectTask }: { allTasks: Task[]; onSelectTask: (task: Task) => void }) {
+  const weeklyLoads = getWeeklyLoads(allTasks, weekDays);
 
   return (
     <section className="panel full-panel">
@@ -276,7 +330,7 @@ function WeeklyMatrix({ onSelectTask }: { onSelectTask: (task: Task) => void }) 
               {category.name}
             </div>
             {weekDays.map((day) => {
-              const dayTasks = tasks.filter((task) => task.date === day.date && task.category === category.id);
+              const dayTasks = allTasks.filter((task) => task.date === day.date && task.category === category.id);
               return (
                 <div className={`matrix-cell ${dayTasks.length > 1 ? 'is-dense' : ''}`} key={`${category.id}-${day.date}`}>
                   {dayTasks.map((task) => (
@@ -309,12 +363,12 @@ function WeeklyMatrix({ onSelectTask }: { onSelectTask: (task: Task) => void }) 
   );
 }
 
-function ProjectProgress() {
+function ProjectProgress({ allTasks }: { allTasks: Task[] }) {
   return (
     <section className="page-grid">
       <div className="span-12 lane-board">
         {projects.map((project) => {
-          const runtime = getProjectRuntimeState(project, tasks);
+          const runtime = getProjectRuntimeState(project, allTasks);
           return (
             <div className="project-lane" key={project.id} style={accentStyle(project.category)}>
               <div className="lane-head">
@@ -339,9 +393,9 @@ function ProjectProgress() {
   );
 }
 
-function Workbench({ onSelectTask }: { onSelectTask: (task: Task) => void }) {
-  const writingTasks = tasks.filter((task) => task.category === 'writing');
-  const experimentTasks = tasks.filter((task) => task.category === 'experiment');
+function Workbench({ allTasks, onSelectTask }: { allTasks: Task[]; onSelectTask: (task: Task) => void }) {
+  const writingTasks = allTasks.filter((task) => task.category === 'writing');
+  const experimentTasks = allTasks.filter((task) => task.category === 'experiment');
   const currentPaper = writingTasks.find((task) => task.paperFields)?.paperFields;
   const currentExperiment = experimentTasks.find((task) => task.experimentFields)?.experimentFields;
 
@@ -371,8 +425,8 @@ function Workbench({ onSelectTask }: { onSelectTask: (task: Task) => void }) {
   );
 }
 
-function Review() {
-  const stats = getReviewStats(tasks, categories);
+function Review({ allTasks }: { allTasks: Task[] }) {
+  const stats = getReviewStats(allTasks, categories);
 
   return (
     <section className="page-grid">
@@ -462,7 +516,168 @@ function SettingsView() {
   );
 }
 
-function TaskDrawer({ task, onClose }: { task: Task | null; onClose: () => void }) {
+function TaskForm({
+  task,
+  onCancel,
+  onSave,
+}: {
+  task: Task | null;
+  onCancel: () => void;
+  onSave: (task: Task) => void;
+}) {
+  const [draft, setDraft] = useState<Task>(
+    task ?? {
+      id: `t-${Date.now()}`,
+      title: '',
+      category: 'writing',
+      projectId: projects[0].id,
+      date: appDate.today,
+      start: '09:00',
+      duration: 60,
+      energy: '中',
+      location: '办公室',
+      status: 'planned',
+      standard: '',
+      dependency: '',
+      delayReason: '',
+      detail: '',
+    },
+  );
+
+  const updateDraft = <K extends keyof Task>(key: K, value: Task[K]) => {
+    setDraft((current) => ({ ...current, [key]: value }));
+  };
+
+  const submitTask = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onSave({
+      ...draft,
+      title: draft.title.trim() || '未命名任务',
+      duration: Number(draft.duration) || 30,
+      delayReason: draft.delayReason?.trim() || undefined,
+      detail: draft.detail.trim() || draft.standard.trim() || '待补充任务说明。',
+    });
+  };
+
+  return (
+    <div className="modal-backdrop">
+      <form className="task-form" onSubmit={submitTask}>
+        <div className="form-head">
+          <div>
+            <span className="eyebrow">{task ? '编辑任务' : '新建任务'}</span>
+            <h2>{task ? task.title : '添加一个真实执行任务'}</h2>
+          </div>
+          <button className="drawer-close" onClick={onCancel} type="button">
+            ×
+          </button>
+        </div>
+
+        <label className="field span-2">
+          <span>标题</span>
+          <input value={draft.title} onChange={(event) => updateDraft('title', event.target.value)} />
+        </label>
+        <label className="field">
+          <span>类别</span>
+          <select value={draft.category} onChange={(event) => updateDraft('category', event.target.value as CategoryId)}>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>所属项目</span>
+          <select value={draft.projectId} onChange={(event) => updateDraft('projectId', event.target.value)}>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>日期</span>
+          <input value={draft.date} onChange={(event) => updateDraft('date', event.target.value)} type="date" />
+        </label>
+        <label className="field">
+          <span>开始时间</span>
+          <input value={draft.start} onChange={(event) => updateDraft('start', event.target.value)} type="time" />
+        </label>
+        <label className="field">
+          <span>预计时长</span>
+          <input
+            min={15}
+            step={15}
+            type="number"
+            value={draft.duration}
+            onChange={(event) => updateDraft('duration', Number(event.target.value))}
+          />
+        </label>
+        <label className="field">
+          <span>精力等级</span>
+          <select value={draft.energy} onChange={(event) => updateDraft('energy', event.target.value as Task['energy'])}>
+            <option value="低">低</option>
+            <option value="中">中</option>
+            <option value="高">高</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>状态</span>
+          <select value={draft.status} onChange={(event) => updateDraft('status', event.target.value as TaskStatus)}>
+            <option value="planned">已计划</option>
+            <option value="active">进行中</option>
+            <option value="done">已完成</option>
+            <option value="delayed">延期</option>
+            <option value="blocked">阻塞</option>
+            <option value="cancelled">取消</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>地点</span>
+          <input value={draft.location} onChange={(event) => updateDraft('location', event.target.value)} />
+        </label>
+        <label className="field span-2">
+          <span>依赖关系</span>
+          <input value={draft.dependency} onChange={(event) => updateDraft('dependency', event.target.value)} />
+        </label>
+        <label className="field span-2">
+          <span>完成标准</span>
+          <input value={draft.standard} onChange={(event) => updateDraft('standard', event.target.value)} />
+        </label>
+        <label className="field span-2">
+          <span>延期原因</span>
+          <input value={draft.delayReason ?? ''} onChange={(event) => updateDraft('delayReason', event.target.value)} />
+        </label>
+        <label className="field span-2">
+          <span>任务说明</span>
+          <textarea value={draft.detail} onChange={(event) => updateDraft('detail', event.target.value)} />
+        </label>
+
+        <div className="form-actions">
+          <button className="secondary-action" onClick={onCancel} type="button">
+            取消
+          </button>
+          <button className="primary-action" type="submit">
+            保存任务
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function TaskDrawer({
+  task,
+  onClose,
+  onEdit,
+  onStatusChange,
+}: {
+  task: Task | null;
+  onClose: () => void;
+  onEdit: (task: Task) => void;
+  onStatusChange: (taskId: string, status: TaskStatus) => void;
+}) {
   if (!task) return null;
 
   return (
@@ -473,6 +688,20 @@ function TaskDrawer({ task, onClose }: { task: Task | null; onClose: () => void 
       <CategoryPill category={task.category} />
       <h2>{task.title}</h2>
       <p>{task.detail}</p>
+      <div className="drawer-actions">
+        <button onClick={() => onEdit(task)} type="button">
+          编辑
+        </button>
+        <button onClick={() => onStatusChange(task.id, 'done')} type="button">
+          完成
+        </button>
+        <button onClick={() => onStatusChange(task.id, 'delayed')} type="button">
+          延期
+        </button>
+        <button onClick={() => onStatusChange(task.id, 'cancelled')} type="button">
+          取消
+        </button>
+      </div>
       <div className="drawer-grid">
         <InfoCell label="所属项目" value={projectMap[task.projectId].name} />
         <InfoCell label="任务状态" value={statusLabel[task.status]} alert={task.status === 'blocked' || task.status === 'delayed'} />
@@ -515,8 +744,8 @@ function CategoryPill({ category }: { category: CategoryId }) {
   );
 }
 
-function ProjectCard({ project }: { project: ProjectLane }) {
-  const runtime = getProjectRuntimeState(project, tasks);
+function ProjectCard({ project, taskList }: { project: ProjectLane; taskList: Task[] }) {
+  const runtime = getProjectRuntimeState(project, taskList);
   return (
     <div className="project-card" style={accentStyle(project.category)}>
       <div>
