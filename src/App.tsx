@@ -1810,7 +1810,20 @@ function ProjectProgress({
               <div className="lane-head">
                 <CategoryPill category={project.category} categoryList={categoryList} />
                 <strong>{project.name}</strong>
-                <span>{projectStatusLabel[runtime.status as ProjectStatus]}</span>
+                <div className="lane-head-actions">
+                  <span>{projectStatusLabel[runtime.status as ProjectStatus]}</span>
+                  {project.id !== unassignedProjectId && (
+                    <>
+                      <button className="secondary-action" onClick={() => onArchiveProject(project.id)} type="button">
+                        归档
+                      </button>
+                      <button className="danger-action" onClick={() => onDeleteProject(project.id)} type="button">
+                        <Trash2 size={16} />
+                        <span>删除项目</span>
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
               <div className="lane-progress">
                 <span style={{ width: `${project.progress}%` }} />

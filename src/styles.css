@@ -1129,9 +1129,21 @@ select:disabled {
   font-size: 18px;
 }
 
-.lane-head span:last-child {
+.lane-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lane-head-actions > span {
   color: var(--accent);
   font-weight: 900;
+}
+
+.lane-head-actions button {
+  min-height: 34px;
 }
 
 .project-trend {
