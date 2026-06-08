@@ -3291,7 +3291,7 @@ function TaskDrawer({
         <InfoCell label="实际耗时" value={task.actualDuration ? `${task.actualDuration} 分钟` : '完成后记录'} />
         <InfoCell label="脑力消耗" value={task.energy} />
         {task.location && <InfoCell label="地点" value={task.location} />}
-        <InfoCell label="安排时间" value={`${task.date} ${task.start}`} />
+        <InfoCell label="开始时间" value={`${task.date} ${task.start}`} />
         {task.dependency && <InfoCell label="前置条件/等待事项" value={task.dependency} />}
         <InfoCell label="完成定义" value={task.standard || '未设置'} />
         {task.delayReason && <InfoCell label={task.status === 'blocked' ? '卡住原因' : '延期原因'} value={task.delayReason} alert />}
