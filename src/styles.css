@@ -869,13 +869,42 @@ button {
 
 .setting-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   min-height: 42px;
   padding: 9px 10px;
   border-radius: 8px;
   background: #f8fafc;
+}
+
+.inline-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.inline-form input:not(.color-input),
+.template-card input {
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid #d8dde6;
+  border-radius: 8px;
+  color: #1f2733;
+  background: #ffffff;
+}
+
+.color-input {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #d8dde6;
+  border-radius: 6px;
+  background: transparent;
 }
 
 .swatch {
@@ -912,6 +941,7 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin-bottom: 12px;
 }
 
 .template-card span,

@@ -4,7 +4,7 @@ export const toMap = <T extends { id: string }>(items: T[]) =>
   Object.fromEntries(items.map((item) => [item.id, item])) as Record<string, T>;
 
 export const getCategoryMap = (categories: Category[]) =>
-  Object.fromEntries(categories.map((category) => [category.id, category])) as Record<CategoryId, Category>;
+  Object.fromEntries(categories.map((category) => [category.id, category])) as Record<string, Category>;
 
 export const getTasksForDate = (tasks: Task[], date: string) => tasks.filter((task) => task.date === date);
 

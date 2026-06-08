@@ -37,6 +37,7 @@ import {
   toMap,
 } from './selectors';
 import type { CategoryId, ProjectLane, Task, TaskStatus, ViewId } from './types';
+import type { Category, FieldTemplate, ViewPreset, Widget } from './types';
 
 const navItems: Array<{ id: ViewId; label: string; icon: ComponentType<{ size?: number }> }> = [
   { id: 'today', label: '今日驾驶舱', icon: LayoutDashboard },
@@ -47,14 +48,22 @@ const navItems: Array<{ id: ViewId; label: string; icon: ComponentType<{ size?: 
   { id: 'settings', label: '设置模板', icon: Settings },
 ];
 
-const categoryMap = getCategoryMap(categories);
 const projectMap = toMap(projects);
 
-const accentStyle = (categoryId: CategoryId) =>
-  ({
-    '--accent': categoryMap[categoryId].color,
-    '--accent-soft': categoryMap[categoryId].soft,
-  }) as CSSProperties;
+const fallbackCategory: Category = { id: 'custom', name: '自定义', color: '#607d8b', soft: '#edf2f4' };
+
+const getCategory = (categoryList: Category[], categoryId: CategoryId) =>
+  getCategoryMap(categoryList)[categoryId] ?? fallbackCategory;
+
+const accentStyle = (categoryList: Category[], categoryId: CategoryId) => {
+  const category = getCategory(categoryList, categoryId);
+  return {
+    '--accent': category.color,
+    '--accent-soft': category.soft,
+  } as CSSProperties;
+};
+
+const makeSoftColor = (hex: string) => `${hex}1a`;
 
 function AppShell({
   activeView,
@@ -113,6 +122,10 @@ function AppShell({
 function App() {
   const [activeView, setActiveView] = useState<ViewId>('today');
   const [taskList, setTaskList] = useState<Task[]>(initialTasks);
+  const [categoryList, setCategoryList] = useState<Category[]>(categories);
+  const [widgetList, setWidgetList] = useState<Widget[]>(widgets);
+  const [templateList, setTemplateList] = useState<FieldTemplate[]>(fieldTemplates);
+  const [activePresetId, setActivePresetId] = useState<ViewPreset['id']>(viewPresets[0].id);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
@@ -140,16 +153,79 @@ function App() {
     );
   };
 
+  const addCategory = (name: string, color: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+    setCategoryList((current) => [
+      ...current,
+      {
+        id: `custom-${Date.now()}`,
+        name: trimmedName,
+        color,
+        soft: makeSoftColor(color),
+      },
+    ]);
+  };
+
+  const updateCategoryColor = (categoryId: string, color: string) => {
+    setCategoryList((current) =>
+      current.map((category) => (category.id === categoryId ? { ...category, color, soft: makeSoftColor(color) } : category)),
+    );
+  };
+
+  const toggleWidget = (widgetId: string) => {
+    setWidgetList((current) =>
+      current.map((widget) => (widget.id === widgetId ? { ...widget, visible: !widget.visible } : widget)),
+    );
+  };
+
+  const updateTemplateFields = (templateId: string, fields: string[]) => {
+    setTemplateList((current) =>
+      current.map((template) => (template.id === templateId ? { ...template, fields } : template)),
+    );
+  };
+
+  const applyPreset = (preset: ViewPreset) => {
+    setActivePresetId(preset.id);
+    setWidgetList((current) =>
+      current.map((widget) => ({
+        ...widget,
+        visible: preset.widgetIds.includes(widget.id),
+      })),
+    );
+  };
+
   return (
     <AppShell activeView={activeView} setActiveView={setActiveView} taskList={taskList}>
       <TopBar activeView={activeView} onCreateTask={() => setIsCreatingTask(true)} />
-      {activeView === 'today' && <TodayDashboard allTasks={taskList} todayTasks={todayTasks} onSelectTask={setSelectedTask} />}
-      {activeView === 'week' && <WeeklyMatrix allTasks={taskList} onSelectTask={setSelectedTask} />}
-      {activeView === 'projects' && <ProjectProgress allTasks={taskList} />}
-      {activeView === 'workbench' && <Workbench allTasks={taskList} onSelectTask={setSelectedTask} />}
-      {activeView === 'review' && <Review allTasks={taskList} />}
-      {activeView === 'settings' && <SettingsView />}
+      {activeView === 'today' && (
+        <TodayDashboard
+          allTasks={taskList}
+          categoryList={categoryList}
+          todayTasks={todayTasks}
+          widgetList={widgetList}
+          onSelectTask={setSelectedTask}
+        />
+      )}
+      {activeView === 'week' && <WeeklyMatrix allTasks={taskList} categoryList={categoryList} onSelectTask={setSelectedTask} />}
+      {activeView === 'projects' && <ProjectProgress allTasks={taskList} categoryList={categoryList} />}
+      {activeView === 'workbench' && <Workbench allTasks={taskList} categoryList={categoryList} onSelectTask={setSelectedTask} />}
+      {activeView === 'review' && <Review allTasks={taskList} categoryList={categoryList} />}
+      {activeView === 'settings' && (
+        <SettingsView
+          activePresetId={activePresetId}
+          categoryList={categoryList}
+          templateList={templateList}
+          widgetList={widgetList}
+          onAddCategory={addCategory}
+          onApplyPreset={applyPreset}
+          onToggleWidget={toggleWidget}
+          onUpdateCategoryColor={updateCategoryColor}
+          onUpdateTemplateFields={updateTemplateFields}
+        />
+      )}
       <TaskDrawer
+        categoryList={categoryList}
         task={selectedTask}
         onClose={() => setSelectedTask(null)}
         onEdit={(task) => setEditingTask(task)}
@@ -157,6 +233,7 @@ function App() {
       />
       {(editingTask || isCreatingTask) && (
         <TaskForm
+          categoryList={categoryList}
           task={editingTask}
           onCancel={() => {
             setEditingTask(null);
@@ -198,11 +275,15 @@ function TopBar({ activeView, onCreateTask }: { activeView: ViewId; onCreateTask
 
 function TodayDashboard({
   allTasks,
+  categoryList,
   todayTasks,
+  widgetList,
   onSelectTask,
 }: {
   allTasks: Task[];
+  categoryList: Category[];
   todayTasks: Task[];
+  widgetList: Widget[];
   onSelectTask: (task: Task) => void;
 }) {
   const todayMetrics = getTodayMetrics(allTasks, appDate.today);
@@ -211,6 +292,7 @@ function TodayDashboard({
   const reminders = allTasks
     .filter((task) => task.status === 'blocked' || task.status === 'delayed' || task.date === appDate.today)
     .slice(0, 3);
+  const isWidgetVisible = (widgetId: string) => widgetList.find((widget) => widget.id === widgetId)?.visible;
 
   return (
     <section className="page-grid today-grid">
@@ -244,72 +326,88 @@ function TodayDashboard({
         </div>
       </div>
 
-      <div className="span-7 panel">
-        <PanelTitle icon={Clock3} title="今日时间轴" />
-        <div className="timeline">
-          {todayTasks.map((task) => (
-            <button
-              className={`timeline-item status-${task.status}`}
-              key={task.id}
-              onClick={() => onSelectTask(task)}
-              style={accentStyle(task.category)}
-              type="button"
-            >
-              <span className="time">{task.start}</span>
-              <div>
-                <strong>{task.title}</strong>
-                <small>
-                  {task.duration} 分钟 · {projectMap[task.projectId].name} · {statusLabel[task.status]}
-                </small>
-              </div>
-              <CategoryPill category={task.category} />
-            </button>
-          ))}
+      {isWidgetVisible('timeline') && (
+        <div className="span-7 panel">
+          <PanelTitle icon={Clock3} title="今日时间轴" />
+          <div className="timeline">
+            {todayTasks.map((task) => (
+              <button
+                className={`timeline-item status-${task.status}`}
+                key={task.id}
+                onClick={() => onSelectTask(task)}
+                style={accentStyle(categoryList, task.category)}
+                type="button"
+              >
+                <span className="time">{task.start}</span>
+                <div>
+                  <strong>{task.title}</strong>
+                  <small>
+                    {task.duration} 分钟 · {projectMap[task.projectId].name} · {statusLabel[task.status]}
+                  </small>
+                </div>
+                <CategoryPill category={task.category} categoryList={categoryList} />
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="span-5 panel">
-        <PanelTitle icon={Gauge} title="项目状态" />
-        <div className="project-stack">
-          {activeProjects.map((project) => (
-            <ProjectCard key={project.id} project={project} taskList={allTasks} />
-          ))}
+      {isWidgetVisible('project-progress') && (
+        <div className="span-5 panel">
+          <PanelTitle icon={Gauge} title="项目状态" />
+          <div className="project-stack">
+            {activeProjects.map((project) => (
+              <ProjectCard key={project.id} categoryList={categoryList} project={project} taskList={allTasks} />
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="span-5 panel">
-        <PanelTitle icon={AlertTriangle} title="近期提醒" />
-        <div className="reminder-list">
-          {reminders.map((task) => (
-            <Reminder
-              key={task.id}
-              title={task.title}
-              meta={`${task.date} ${task.start} · ${projectMap[task.projectId].name}`}
-              tone={task.status === 'blocked' ? 'hot' : task.status === 'delayed' ? 'warn' : 'calm'}
-            />
-          ))}
+      {isWidgetVisible('deadline-alerts') && (
+        <div className="span-5 panel">
+          <PanelTitle icon={AlertTriangle} title="近期提醒" />
+          <div className="reminder-list">
+            {reminders.map((task) => (
+              <Reminder
+                key={task.id}
+                title={task.title}
+                meta={`${task.date} ${task.start} · ${projectMap[task.projectId].name}`}
+                tone={task.status === 'blocked' ? 'hot' : task.status === 'delayed' ? 'warn' : 'calm'}
+              />
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="span-7 panel">
-        <PanelTitle icon={Brain} title="精力负荷" />
-        <div className="energy-board">
-          {energySummary.map((item) => (
-            <EnergyBlock
-              key={item.label}
-              label={item.label}
-              value={item.value}
-              color={item.label.startsWith('高') ? '#5b6ee1' : item.label.startsWith('中') ? '#d4554f' : '#4f7b62'}
-            />
-          ))}
-          <EnergyBlock label="项目数" value={activeProjects.length} color="#7a5c98" />
+      {isWidgetVisible('energy-load') && (
+        <div className="span-7 panel">
+          <PanelTitle icon={Brain} title="精力负荷" />
+          <div className="energy-board">
+            {energySummary.map((item) => (
+              <EnergyBlock
+                key={item.label}
+                label={item.label}
+                value={item.value}
+                color={item.label.startsWith('高') ? '#5b6ee1' : item.label.startsWith('中') ? '#d4554f' : '#4f7b62'}
+              />
+            ))}
+            <EnergyBlock label="项目数" value={activeProjects.length} color="#7a5c98" />
+          </div>
         </div>
-      </div>
+      )}
     </section>
   );
 }
 
-function WeeklyMatrix({ allTasks, onSelectTask }: { allTasks: Task[]; onSelectTask: (task: Task) => void }) {
+function WeeklyMatrix({
+  allTasks,
+  categoryList,
+  onSelectTask,
+}: {
+  allTasks: Task[];
+  categoryList: Category[];
+  onSelectTask: (task: Task) => void;
+}) {
   const weeklyLoads = getWeeklyLoads(allTasks, weekDays);
 
   return (
@@ -323,9 +421,9 @@ function WeeklyMatrix({ allTasks, onSelectTask }: { allTasks: Task[]; onSelectTa
             <span>{day.short}</span>
           </div>
         ))}
-        {categories.map((category) => (
+        {categoryList.map((category) => (
           <div className="matrix-row" key={category.id}>
-            <div className="matrix-type" style={accentStyle(category.id)}>
+            <div className="matrix-type" style={accentStyle(categoryList, category.id)}>
               <span />
               {category.name}
             </div>
@@ -338,7 +436,7 @@ function WeeklyMatrix({ allTasks, onSelectTask }: { allTasks: Task[]; onSelectTa
                       className={`mini-task status-${task.status}`}
                       key={task.id}
                       onClick={() => onSelectTask(task)}
-                      style={accentStyle(task.category)}
+                      style={accentStyle(categoryList, task.category)}
                       type="button"
                     >
                       <strong>{task.title}</strong>
@@ -363,16 +461,16 @@ function WeeklyMatrix({ allTasks, onSelectTask }: { allTasks: Task[]; onSelectTa
   );
 }
 
-function ProjectProgress({ allTasks }: { allTasks: Task[] }) {
+function ProjectProgress({ allTasks, categoryList }: { allTasks: Task[]; categoryList: Category[] }) {
   return (
     <section className="page-grid">
       <div className="span-12 lane-board">
         {projects.map((project) => {
           const runtime = getProjectRuntimeState(project, allTasks);
           return (
-            <div className="project-lane" key={project.id} style={accentStyle(project.category)}>
+            <div className="project-lane" key={project.id} style={accentStyle(categoryList, project.category)}>
               <div className="lane-head">
-                <CategoryPill category={project.category} />
+                <CategoryPill category={project.category} categoryList={categoryList} />
                 <strong>{project.name}</strong>
                 <span>{project.progress}%</span>
               </div>
@@ -393,7 +491,15 @@ function ProjectProgress({ allTasks }: { allTasks: Task[] }) {
   );
 }
 
-function Workbench({ allTasks, onSelectTask }: { allTasks: Task[]; onSelectTask: (task: Task) => void }) {
+function Workbench({
+  allTasks,
+  categoryList,
+  onSelectTask,
+}: {
+  allTasks: Task[];
+  categoryList: Category[];
+  onSelectTask: (task: Task) => void;
+}) {
   const writingTasks = allTasks.filter((task) => task.category === 'writing');
   const experimentTasks = allTasks.filter((task) => task.category === 'experiment');
   const currentPaper = writingTasks.find((task) => task.paperFields)?.paperFields;
@@ -409,7 +515,7 @@ function Workbench({ allTasks, onSelectTask }: { allTasks: Task[]; onSelectTask:
           <InfoCell label="版本" value={currentPaper?.version ?? '未设置'} />
           <InfoCell label="反馈" value={currentPaper?.feedback ?? '未设置'} alert />
         </div>
-        <TaskList tasks={writingTasks} onSelectTask={onSelectTask} />
+        <TaskList categoryList={categoryList} tasks={writingTasks} onSelectTask={onSelectTask} />
       </div>
       <div className="span-6 panel work-panel">
         <PanelTitle icon={Beaker} title="实验工作台" />
@@ -419,14 +525,14 @@ function Workbench({ allTasks, onSelectTask }: { allTasks: Task[]; onSelectTask:
           <InfoCell label="条件" value={currentExperiment?.condition ?? '未设置'} />
           <InfoCell label="等待期" value={currentExperiment?.waiting ?? '未设置'} alert />
         </div>
-        <TaskList tasks={experimentTasks} onSelectTask={onSelectTask} />
+        <TaskList categoryList={categoryList} tasks={experimentTasks} onSelectTask={onSelectTask} />
       </div>
     </section>
   );
 }
 
-function Review({ allTasks }: { allTasks: Task[] }) {
-  const stats = getReviewStats(allTasks, categories);
+function Review({ allTasks, categoryList }: { allTasks: Task[]; categoryList: Category[] }) {
+  const stats = getReviewStats(allTasks, categoryList);
 
   return (
     <section className="page-grid">
@@ -471,42 +577,104 @@ function Review({ allTasks }: { allTasks: Task[] }) {
   );
 }
 
-function SettingsView() {
+function SettingsView({
+  activePresetId,
+  categoryList,
+  templateList,
+  widgetList,
+  onAddCategory,
+  onApplyPreset,
+  onToggleWidget,
+  onUpdateCategoryColor,
+  onUpdateTemplateFields,
+}: {
+  activePresetId: string;
+  categoryList: Category[];
+  templateList: FieldTemplate[];
+  widgetList: Widget[];
+  onAddCategory: (name: string, color: string) => void;
+  onApplyPreset: (preset: ViewPreset) => void;
+  onToggleWidget: (widgetId: string) => void;
+  onUpdateCategoryColor: (categoryId: string, color: string) => void;
+  onUpdateTemplateFields: (templateId: string, fields: string[]) => void;
+}) {
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryColor, setNewCategoryColor] = useState('#3f6f8f');
+
+  const submitCategory = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onAddCategory(newCategoryName, newCategoryColor);
+    setNewCategoryName('');
+  };
+
   return (
     <section className="page-grid">
       <div className="span-5 panel">
         <PanelTitle icon={SlidersHorizontal} title="任务类型颜色" />
         <div className="settings-list">
-          {categories.map((category) => (
+          {categoryList.map((category) => (
             <div className="setting-row" key={category.id}>
-              <span className="swatch" style={{ background: category.color }} />
+              <input
+                aria-label={`${category.name}颜色`}
+                className="color-input"
+                type="color"
+                value={category.color}
+                onChange={(event) => onUpdateCategoryColor(category.id, event.target.value)}
+              />
               <strong>{category.name}</strong>
               <span>{category.color}</span>
             </div>
           ))}
         </div>
+        <form className="inline-form" onSubmit={submitCategory}>
+          <input
+            placeholder="新增类型名称"
+            value={newCategoryName}
+            onChange={(event) => setNewCategoryName(event.target.value)}
+          />
+          <input
+            aria-label="新增类型颜色"
+            className="color-input"
+            type="color"
+            value={newCategoryColor}
+            onChange={(event) => setNewCategoryColor(event.target.value)}
+          />
+          <button className="secondary-action" type="submit">
+            新增类型
+          </button>
+        </form>
       </div>
       <div className="span-7 panel">
         <PanelTitle icon={Settings} title="字段模板" />
         <div className="template-grid">
-          {fieldTemplates.map((template) => (
-            <TemplateCard key={template.id} title={template.name} fields={template.fields} />
+          {templateList.map((template) => (
+            <TemplateCard
+              key={template.id}
+              title={template.name}
+              fields={template.fields}
+              onChange={(fields) => onUpdateTemplateFields(template.id, fields)}
+            />
           ))}
         </div>
       </div>
       <div className="span-12 panel">
         <PanelTitle icon={LayoutDashboard} title="首页模块与预设布局" />
         <div className="preset-row">
-          {viewPresets.map((preset, index) => (
-            <button className={index === 0 ? 'preset is-active' : 'preset'} key={preset.id} type="button">
+          {viewPresets.map((preset) => (
+            <button
+              className={activePresetId === preset.id ? 'preset is-active' : 'preset'}
+              key={preset.id}
+              onClick={() => onApplyPreset(preset)}
+              type="button"
+            >
               {preset.name}
             </button>
           ))}
         </div>
         <div className="widget-row">
-          {widgets.map((widget) => (
+          {widgetList.map((widget) => (
             <label className="widget-toggle" key={widget.id}>
-              <input checked={widget.visible} readOnly type="checkbox" />
+              <input checked={widget.visible} onChange={() => onToggleWidget(widget.id)} type="checkbox" />
               <span>{widget.name}</span>
             </label>
           ))}
@@ -517,10 +685,12 @@ function SettingsView() {
 }
 
 function TaskForm({
+  categoryList,
   task,
   onCancel,
   onSave,
 }: {
+  categoryList: Category[];
   task: Task | null;
   onCancel: () => void;
   onSave: (task: Task) => void;
@@ -579,7 +749,7 @@ function TaskForm({
         <label className="field">
           <span>类别</span>
           <select value={draft.category} onChange={(event) => updateDraft('category', event.target.value as CategoryId)}>
-            {categories.map((category) => (
+            {categoryList.map((category) => (
               <option key={category.id} value={category.id}>
                 {category.name}
               </option>
@@ -668,11 +838,13 @@ function TaskForm({
 }
 
 function TaskDrawer({
+  categoryList,
   task,
   onClose,
   onEdit,
   onStatusChange,
 }: {
+  categoryList: Category[];
   task: Task | null;
   onClose: () => void;
   onEdit: (task: Task) => void;
@@ -685,7 +857,7 @@ function TaskDrawer({
       <button className="drawer-close" onClick={onClose} type="button">
         ×
       </button>
-      <CategoryPill category={task.category} />
+      <CategoryPill category={task.category} categoryList={categoryList} />
       <h2>{task.title}</h2>
       <p>{task.detail}</p>
       <div className="drawer-actions">
@@ -735,19 +907,19 @@ function Metric({ value, label, tone }: { value: string; label: string; tone?: '
   );
 }
 
-function CategoryPill({ category }: { category: CategoryId }) {
-  const item = categoryMap[category];
+function CategoryPill({ category, categoryList }: { category: CategoryId; categoryList: Category[] }) {
+  const item = getCategory(categoryList, category);
   return (
-    <span className="category-pill" style={accentStyle(category)}>
+    <span className="category-pill" style={accentStyle(categoryList, category)}>
       {item.name}
     </span>
   );
 }
 
-function ProjectCard({ project, taskList }: { project: ProjectLane; taskList: Task[] }) {
+function ProjectCard({ categoryList, project, taskList }: { categoryList: Category[]; project: ProjectLane; taskList: Task[] }) {
   const runtime = getProjectRuntimeState(project, taskList);
   return (
-    <div className="project-card" style={accentStyle(project.category)}>
+    <div className="project-card" style={accentStyle(categoryList, project.category)}>
       <div>
         <strong>{project.name}</strong>
         <span>{runtime.nextTask?.title ?? project.stage}</span>
@@ -802,11 +974,19 @@ function InfoCell({ label, value, alert }: { label: string; value: string; alert
   );
 }
 
-function TaskList({ tasks: taskList, onSelectTask }: { tasks: Task[]; onSelectTask: (task: Task) => void }) {
+function TaskList({
+  categoryList,
+  tasks: taskList,
+  onSelectTask,
+}: {
+  categoryList: Category[];
+  tasks: Task[];
+  onSelectTask: (task: Task) => void;
+}) {
   return (
     <div className="compact-task-list">
       {taskList.map((task) => (
-        <button key={task.id} onClick={() => onSelectTask(task)} style={accentStyle(task.category)} type="button">
+        <button key={task.id} onClick={() => onSelectTask(task)} style={accentStyle(categoryList, task.category)} type="button">
           <span className={`status-dot status-${task.status}`} />
           <strong>{task.title}</strong>
           <small>
@@ -848,7 +1028,7 @@ function Suggestion({
   );
 }
 
-function TemplateCard({ title, fields }: { title: string; fields: string[] }) {
+function TemplateCard({ title, fields, onChange }: { title: string; fields: string[]; onChange: (fields: string[]) => void }) {
   return (
     <div className="template-card">
       <strong>{title}</strong>
@@ -857,6 +1037,17 @@ function TemplateCard({ title, fields }: { title: string; fields: string[] }) {
           <span key={field}>{field}</span>
         ))}
       </div>
+      <input
+        value={fields.join('、')}
+        onChange={(event) =>
+          onChange(
+            event.target.value
+              .split(/[、,，]/)
+              .map((field) => field.trim())
+              .filter(Boolean),
+          )
+        }
+      />
     </div>
   );
 }

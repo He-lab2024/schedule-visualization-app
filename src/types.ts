@@ -1,4 +1,4 @@
-export type CategoryId = 'writing' | 'experiment' | 'data' | 'learning' | 'life' | 'recovery';
+export type CategoryId = string;
 export type TaskStatus = 'planned' | 'active' | 'done' | 'delayed' | 'blocked' | 'cancelled';
 export type ViewId = 'today' | 'week' | 'projects' | 'workbench' | 'review' | 'settings';
 export type EnergyLevel = '低' | '中' | '高';
