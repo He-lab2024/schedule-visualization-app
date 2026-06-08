@@ -1068,6 +1068,29 @@ select:disabled {
   font-weight: 900;
 }
 
+.project-trend {
+  display: flex;
+  align-items: end;
+  gap: 5px;
+  height: 42px;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.project-trend i {
+  flex: 1;
+  min-width: 8px;
+  border-radius: 999px 999px 3px 3px;
+  background: var(--accent);
+}
+
+.project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .lane-grid,
 .work-meta-grid,
 .drawer-grid {
@@ -1389,6 +1412,10 @@ select:disabled {
   box-shadow: 0 24px 80px rgba(23, 32, 44, 0.22);
 }
 
+.project-drawer {
+  width: min(620px, calc(100vw - 32px));
+}
+
 .drawer-close {
   position: absolute;
   top: 12px;
@@ -1466,6 +1493,79 @@ select:disabled {
 
 .drawer-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.project-detail-section {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.project-detail-section .panel-title {
+  margin-bottom: 0;
+}
+
+.milestone-list,
+.risk-list {
+  display: grid;
+  gap: 9px;
+}
+
+.milestone {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid #e0e5ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.milestone span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  border-radius: 999px;
+  color: #b7791f;
+  background: #fff1d8;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.milestone.is-done span {
+  color: #2f8b83;
+  background: #dff5f1;
+}
+
+.milestone strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #263446;
+  font-size: 13px;
+}
+
+.milestone small {
+  color: #687182;
+  font-size: 12px;
+}
+
+.project-trend-large {
+  height: 86px;
+  border: 1px solid #e0e5ef;
+  background: #f8fafc;
+}
+
+.risk-list span {
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: #b7433d;
+  background: #fff5f4;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .modal-backdrop {

@@ -152,14 +152,29 @@ export const getHighEnergyLoads = (tasks: Task[], weekDays: WeekDay[]) =>
 
 export const getProjectRuntimeState = (project: ProjectLane, tasks: Task[]) => {
   const projectTasks = getTasksForProject(tasks, project.id);
-  const blockedTasks = projectTasks.filter((task) => task.status === 'blocked' || task.status === 'delayed');
+  const doneTasks = projectTasks.filter((task) => task.status === 'done');
+  const delayedTasks = projectTasks.filter((task) => task.status === 'delayed');
+  const blockedTasks = projectTasks.filter((task) => task.status === 'blocked');
+  const riskTasks = [...blockedTasks, ...delayedTasks];
   const nextTask = projectTasks.find((task) => task.status === 'active') ?? projectTasks.find((task) => task.status === 'planned');
+  const runtimeStatus = riskTasks.length > 0 ? 'risk' : projectTasks.length === doneTasks.length && projectTasks.length > 0 ? 'done' : project.status;
+  const progressTrend = project.trend.length > 0 ? project.trend : [project.progress];
+  const riskTips = [
+    ...blockedTasks.map((task) => `${task.title} 阻塞：${task.delayReason ?? task.dependency}`),
+    ...delayedTasks.map((task) => `${task.title} 延期：${task.delayReason ?? '未记录原因'}`),
+  ];
 
   return {
     taskCount: projectTasks.length,
+    doneCount: doneTasks.length,
+    delayedCount: delayedTasks.length,
     blockedCount: blockedTasks.length,
+    riskCount: riskTasks.length,
+    status: runtimeStatus,
     nextTask,
-    blocker: blockedTasks[0]?.delayReason ?? project.blocker,
+    blocker: riskTasks[0]?.delayReason ?? project.blocker,
+    progressTrend,
+    riskTips: riskTips.length ? riskTips : [`当前主要风险：${project.blocker}`],
   };
 };
 

@@ -1,5 +1,6 @@
 export type CategoryId = string;
 export type TaskStatus = 'planned' | 'active' | 'done' | 'delayed' | 'blocked' | 'cancelled';
+export type ProjectStatus = 'not-started' | 'active' | 'risk' | 'paused' | 'done';
 export type ViewId = 'today' | 'week' | 'projects' | 'workbench' | 'review' | 'settings';
 export type EnergyLevel = '低' | '中' | '高';
 
@@ -48,10 +49,21 @@ export type ProjectLane = {
   name: string;
   category: CategoryId;
   stage: string;
+  status: ProjectStatus;
+  deadline: string;
   progress: number;
   next: string;
   blocker: string;
   cadence: string;
+  milestones: ProjectMilestone[];
+  trend: number[];
+};
+
+export type ProjectMilestone = {
+  id: string;
+  title: string;
+  date: string;
+  done: boolean;
 };
 
 export type WeekDay = {

@@ -51,7 +51,7 @@ import {
   statusLabel,
   toMap,
 } from './selectors';
-import type { CategoryId, ProjectLane, Task, TaskStatus, ViewId } from './types';
+import type { CategoryId, ProjectLane, ProjectStatus, Task, TaskStatus, ViewId } from './types';
 import type { Category, FieldTemplate, ViewPreset, Widget } from './types';
 
 const navItems: Array<{ id: ViewId; label: string; icon: ComponentType<{ size?: number }> }> = [
@@ -109,6 +109,14 @@ const taskFilters: Array<{ id: TaskFilter; label: string }> = [
   { id: 'risk', label: '风险' },
   { id: 'done', label: '已完成' },
 ];
+
+const projectStatusLabel: Record<ProjectStatus, string> = {
+  'not-started': '未开始',
+  active: '进行中',
+  risk: '风险',
+  paused: '暂停',
+  done: '完成',
+};
 
 const defaultPersistedState = (): PersistedState => ({
   version: 1,
@@ -223,8 +231,10 @@ function App() {
   const [templateList, setTemplateList] = useState<FieldTemplate[]>(initialState.templateList);
   const [activePresetId, setActivePresetId] = useState<ViewPreset['id']>(initialState.activePresetId);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [selectedProject, setSelectedProject] = useState<ProjectLane | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [creatingTaskDraft, setCreatingTaskDraft] = useState<Task | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [taskFilter, setTaskFilter] = useState<TaskFilter>('all');
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set());
@@ -267,6 +277,32 @@ function App() {
     setSelectedTask(task);
     setEditingTask(null);
     setIsCreatingTask(false);
+    setCreatingTaskDraft(null);
+  };
+
+  const makeDefaultTask = (project?: ProjectLane): Task => ({
+    id: `t-${Date.now()}`,
+    title: '',
+    category: project?.category ?? 'writing',
+    projectId: project?.id ?? projects[0].id,
+    date: appDate.today,
+    start: '09:00',
+    duration: 60,
+    actualDuration: undefined,
+    energy: '中',
+    location: '办公室',
+    status: 'planned',
+    standard: '',
+    dependency: '',
+    delayReason: '',
+    notes: project ? `来自项目「${project.name}」的下一步任务。` : '',
+    detail: project ? project.next : '',
+  });
+
+  const startCreateTask = (project?: ProjectLane) => {
+    setCreatingTaskDraft(project ? makeDefaultTask(project) : null);
+    setEditingTask(null);
+    setIsCreatingTask(true);
   };
 
   const updateTaskStatus = (taskId: string, status: TaskStatus) => {
@@ -448,7 +484,7 @@ function App() {
         activeView={activeView}
         searchQuery={searchQuery}
         taskFilter={taskFilter}
-        onCreateTask={() => setIsCreatingTask(true)}
+        onCreateTask={() => startCreateTask()}
         onJumpToday={() => setActiveView('today')}
         onJumpWeek={() => setActiveView('week')}
         onSearchChange={setSearchQuery}
@@ -489,7 +525,14 @@ function App() {
           onToggleTaskSelection={toggleTaskSelection}
         />
       )}
-      {activeView === 'projects' && <ProjectProgress allTasks={filteredTasks} categoryList={categoryList} />}
+      {activeView === 'projects' && (
+        <ProjectProgress
+          allTasks={filteredTasks}
+          categoryList={categoryList}
+          onCreateProjectTask={startCreateTask}
+          onSelectProject={setSelectedProject}
+        />
+      )}
       {activeView === 'workbench' && (
         <Workbench
           allTasks={filteredTasks}
@@ -525,13 +568,22 @@ function App() {
         onEdit={(task) => setEditingTask(task)}
         onStatusChange={updateTaskStatus}
       />
+      <ProjectDrawer
+        categoryList={categoryList}
+        project={selectedProject}
+        taskList={filteredTasks}
+        onClose={() => setSelectedProject(null)}
+        onCreateTask={startCreateTask}
+      />
       {(editingTask || isCreatingTask) && (
         <TaskForm
           categoryList={categoryList}
+          initialTask={creatingTaskDraft}
           task={editingTask}
           onCancel={() => {
             setEditingTask(null);
             setIsCreatingTask(false);
+            setCreatingTaskDraft(null);
           }}
           onSave={upsertTask}
         />
@@ -979,7 +1031,17 @@ function WeeklyMatrix({
   );
 }
 
-function ProjectProgress({ allTasks, categoryList }: { allTasks: Task[]; categoryList: Category[] }) {
+function ProjectProgress({
+  allTasks,
+  categoryList,
+  onCreateProjectTask,
+  onSelectProject,
+}: {
+  allTasks: Task[];
+  categoryList: Category[];
+  onCreateProjectTask: (project: ProjectLane) => void;
+  onSelectProject: (project: ProjectLane) => void;
+}) {
   const visibleProjects = projects.filter((project) => getTasksForProject(allTasks, project.id).length > 0);
 
   return (
@@ -995,16 +1057,34 @@ function ProjectProgress({ allTasks, categoryList }: { allTasks: Task[]; categor
               <div className="lane-head">
                 <CategoryPill category={project.category} categoryList={categoryList} />
                 <strong>{project.name}</strong>
-                <span>{project.progress}%</span>
+                <span>{projectStatusLabel[runtime.status as ProjectStatus]}</span>
               </div>
               <div className="lane-progress">
                 <span style={{ width: `${project.progress}%` }} />
               </div>
+              <div className="project-trend" aria-label={`${project.name}进度趋势`}>
+                {runtime.progressTrend.map((value, index) => (
+                  <i key={`${project.id}-${index}`} style={{ height: `${Math.max(14, value)}%` }} />
+                ))}
+              </div>
               <div className="lane-grid">
+                <InfoCell label="进度" value={`${project.progress}%`} />
                 <InfoCell label="阶段" value={project.stage} />
+                <InfoCell label="截止日期" value={project.deadline} alert={runtime.status === 'risk'} />
+                <InfoCell label="任务统计" value={`${runtime.taskCount} 总 · ${runtime.doneCount} 完成 · ${runtime.riskCount} 风险`} alert={runtime.riskCount > 0} />
                 <InfoCell label="下一步" value={runtime.nextTask?.title ?? project.next} />
-                <InfoCell label="阻塞点" value={runtime.blocker} alert={runtime.blockedCount > 0} />
-                <InfoCell label="任务状态" value={`${runtime.taskCount} 个任务 · ${runtime.blockedCount} 个风险`} />
+                <InfoCell label="风险提示" value={runtime.blocker} alert={runtime.riskCount > 0} />
+                <InfoCell label="当前节奏" value={project.cadence} />
+                <InfoCell label="里程碑" value={`${project.milestones.filter((milestone) => milestone.done).length}/${project.milestones.length} 完成`} />
+              </div>
+              <div className="project-actions">
+                <button className="secondary-action" onClick={() => onSelectProject(project)} type="button">
+                  查看详情
+                </button>
+                <button className="primary-action" onClick={() => onCreateProjectTask(project)} type="button">
+                  <Plus size={16} />
+                  <span>新建任务</span>
+                </button>
               </div>
             </div>
           );
@@ -1287,18 +1367,20 @@ function SettingsView({
 
 function TaskForm({
   categoryList,
+  initialTask,
   task,
   onCancel,
   onSave,
 }: {
   categoryList: Category[];
+  initialTask: Task | null;
   task: Task | null;
   onCancel: () => void;
   onSave: (task: Task) => void;
 }) {
   const [formError, setFormError] = useState('');
   const [draft, setDraft] = useState<Task>(
-    task ?? {
+    task ?? initialTask ?? {
       id: `t-${Date.now()}`,
       title: '',
       category: 'writing',
@@ -1578,6 +1660,98 @@ function TaskDrawer({
         <InfoCell label="完成标准" value={task.standard} />
         <InfoCell label="延期/阻塞原因" value={task.delayReason ?? '无'} alert={Boolean(task.delayReason)} />
         <InfoCell label="备注" value={task.notes ?? '无'} />
+      </div>
+    </aside>
+  );
+}
+
+function ProjectDrawer({
+  categoryList,
+  project,
+  taskList,
+  onClose,
+  onCreateTask,
+}: {
+  categoryList: Category[];
+  project: ProjectLane | null;
+  taskList: Task[];
+  onClose: () => void;
+  onCreateTask: (project: ProjectLane) => void;
+}) {
+  if (!project) return null;
+
+  const runtime = getProjectRuntimeState(project, taskList);
+  const projectTasks = getTasksForProject(taskList, project.id);
+
+  return (
+    <aside className="task-drawer project-drawer">
+      <button className="drawer-close" onClick={onClose} type="button">
+        ×
+      </button>
+      <CategoryPill category={project.category} categoryList={categoryList} />
+      <h2>{project.name}</h2>
+      <p>{project.stage}</p>
+      <div className="drawer-actions">
+        <button className="primary-action" onClick={() => onCreateTask(project)} type="button">
+          <Plus size={16} />
+          <span>从项目创建任务</span>
+        </button>
+      </div>
+      <div className="drawer-grid">
+        <InfoCell label="项目状态" value={projectStatusLabel[runtime.status as ProjectStatus]} alert={runtime.status === 'risk'} />
+        <InfoCell label="截止日期" value={project.deadline} />
+        <InfoCell label="当前阶段" value={project.stage} />
+        <InfoCell label="下一个关键动作" value={runtime.nextTask?.title ?? project.next} />
+        <InfoCell label="总任务" value={`${runtime.taskCount} 个`} />
+        <InfoCell label="已完成" value={`${runtime.doneCount} 个`} />
+        <InfoCell label="延期" value={`${runtime.delayedCount} 个`} alert={runtime.delayedCount > 0} />
+        <InfoCell label="阻塞" value={`${runtime.blockedCount} 个`} alert={runtime.blockedCount > 0} />
+      </div>
+      <div className="project-detail-section">
+        <PanelTitle icon={CalendarCheck} title="里程碑" />
+        <div className="milestone-list">
+          {project.milestones.map((milestone) => (
+            <div className={milestone.done ? 'milestone is-done' : 'milestone'} key={milestone.id}>
+              <span>{milestone.done ? '完成' : '待办'}</span>
+              <strong>{milestone.title}</strong>
+              <small>{milestone.date}</small>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="project-detail-section">
+        <PanelTitle icon={BarChart3} title="进度趋势" />
+        <div className="project-trend project-trend-large">
+          {runtime.progressTrend.map((value, index) => (
+            <i key={`${project.id}-drawer-${index}`} style={{ height: `${Math.max(14, value)}%` }} />
+          ))}
+        </div>
+      </div>
+      <div className="project-detail-section">
+        <PanelTitle icon={AlertTriangle} title="项目风险" />
+        <div className="risk-list">
+          {runtime.riskTips.map((tip) => (
+            <span key={tip}>{tip}</span>
+          ))}
+        </div>
+      </div>
+      <div className="project-detail-section">
+        <PanelTitle icon={ListChecks} title="项目任务" />
+        <div className="compact-task-list">
+          {projectTasks.length === 0 ? (
+            <EmptyState title="没有匹配任务" text="当前搜索或状态筛选下，这个项目没有可显示任务。" />
+          ) : (
+            projectTasks.map((task) => (
+              <button key={task.id} style={accentStyle(categoryList, task.category)} type="button">
+                <span className={`status-dot status-${task.status}`} />
+                <strong>{task.title}</strong>
+                <small>
+                  {task.date} · {statusLabel[task.status]}
+                </small>
+              </button>
+            ))
+          )}
+        </div>
       </div>
     </aside>
   );
