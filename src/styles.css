@@ -1518,6 +1518,18 @@ select:disabled {
   background: #f8fafc;
 }
 
+.archive-badge {
+  justify-self: start;
+  min-height: 24px;
+  padding: 4px 8px;
+  border: 1px solid #d8dde6;
+  border-radius: 999px;
+  color: #687182;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .project-settings-head,
 .template-card-head {
   display: grid;
@@ -1682,6 +1694,50 @@ select:disabled {
   background: #f8fafc;
   font-size: 13px;
   line-height: 1.55;
+}
+
+.local-folder-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  margin-bottom: 14px;
+  padding: 13px;
+  border: 1px solid #d8dde6;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.local-folder-panel strong,
+.local-folder-panel span,
+.local-folder-panel small {
+  display: block;
+}
+
+.local-folder-panel strong {
+  color: #17202c;
+  font-size: 14px;
+}
+
+.local-folder-panel span {
+  margin-top: 5px;
+  color: #465264;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.local-folder-panel small {
+  margin-top: 6px;
+  color: #8a93a3;
+  font-size: 12px;
+}
+
+.local-folder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 540px;
 }
 
 .restore-preview {
@@ -1951,6 +2007,27 @@ select:disabled {
   font-weight: 800;
 }
 
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inline-link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0 7px;
+  border: 1px solid #d8dde6;
+  border-radius: 7px;
+  color: #465264;
+  background: #f8fafc;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .field input,
 .field select,
 .field textarea {
@@ -1972,6 +2049,27 @@ select:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.quick-project-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #d8dde6;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.quick-project-form input,
+.quick-project-form select {
+  min-width: 0;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid #d8dde6;
+  border-radius: 8px;
+  color: #1f2733;
+  background: #ffffff;
 }
 
 .quick-date-buttons button {
@@ -2137,6 +2235,18 @@ select:disabled {
   .review-note-grid,
   .matrix-footer {
     grid-template-columns: 1fr;
+  }
+
+  .local-folder-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-project-form {
+    grid-template-columns: 1fr;
+  }
+
+  .local-folder-actions {
+    justify-content: flex-start;
   }
 
   .project-settings-grid .span-wide,

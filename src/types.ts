@@ -50,6 +50,7 @@ export type ProjectLane = {
   category: CategoryId;
   stage: string;
   status: ProjectStatus;
+  archived?: boolean;
   deadline: string;
   progress: number;
   next: string;
@@ -89,4 +90,22 @@ export type FieldTemplate = {
   id: string;
   name: string;
   fields: string[];
+};
+
+export type PersistedState = {
+  schemaVersion: number;
+  version: number;
+  taskList: Task[];
+  categoryList: Category[];
+  projectList: ProjectLane[];
+  widgetList: Widget[];
+  reviewMetricList: Widget[];
+  templateList: FieldTemplate[];
+  activePresetId: string;
+  customPresetList: ViewPreset[];
+  displayDensity: 'comfortable' | 'compact';
+  dailyReviewNote: string;
+  weeklyConclusion: string;
+  nextWeekAdjustment: string;
+  savedAt: string;
 };

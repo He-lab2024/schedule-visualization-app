@@ -16,6 +16,7 @@ import {
   Clock3,
   Copy,
   Download,
+  FolderOpen,
   FlaskConical,
   Gauge,
   HardDrive,
@@ -54,7 +55,8 @@ import {
   toMap,
 } from './selectors';
 import type { CategoryId, ProjectLane, ProjectStatus, Task, TaskStatus, ViewId } from './types';
-import type { Category, FieldTemplate, ViewPreset, Widget } from './types';
+import type { Category, FieldTemplate, PersistedState, ViewPreset, Widget } from './types';
+import { BrowserStorageAdapter, FileSystemStorageAdapter } from './storage';
 
 const navItems: Array<{ id: ViewId; label: string; icon: ComponentType<{ size?: number }> }> = [
   { id: 'today', label: '今日驾驶舱', icon: LayoutDashboard },
@@ -92,24 +94,8 @@ const addDays = (date: string, days: number) => {
   return next.toISOString().slice(0, 10);
 };
 
-type PersistedState = {
-  version: number;
-  taskList: Task[];
-  categoryList: Category[];
-  projectList: ProjectLane[];
-  widgetList: Widget[];
-  reviewMetricList: Widget[];
-  templateList: FieldTemplate[];
-  activePresetId: string;
-  customPresetList: ViewPreset[];
-  displayDensity: 'comfortable' | 'compact';
-  dailyReviewNote: string;
-  weeklyConclusion: string;
-  nextWeekAdjustment: string;
-  savedAt: string;
-};
-
-type SaveStatus = 'saving' | 'saved' | 'failed';
+type SaveStatus = 'idle' | 'saving' | 'dirty' | 'saved' | 'failed';
+type StorageMode = 'browser' | 'local-folder';
 type TaskFilter = 'all' | 'active' | 'risk' | 'done';
 type ActionNotice = {
   id: string;
@@ -122,7 +108,24 @@ type ActionNotice = {
 const storageKey = 'research-schedule-dashboard-state-v1';
 const autoBackupKey = `${storageKey}-auto-backup`;
 const manualBackupKey = `${storageKey}-manual-backup`;
-const storageVersion = 2;
+const storageVersion = 3;
+const schemaVersion = 3;
+const unassignedProjectId = 'p-unassigned';
+
+const unassignedProject: ProjectLane = {
+  id: unassignedProjectId,
+  name: '未归属项目',
+  category: 'custom',
+  stage: '临时收纳',
+  status: 'active',
+  deadline: appDate.today,
+  progress: 0,
+  next: '稍后整理任务归属',
+  blocker: '暂无',
+  cadence: '按需整理',
+  milestones: [],
+  trend: [0],
+};
 
 const taskStatuses: Array<{ id: TaskStatus; label: string }> = [
   { id: 'planned', label: '已计划' },
@@ -156,11 +159,15 @@ const projectStatusLabel: Record<ProjectStatus, string> = {
   done: '完成',
 };
 
+const ensureUnassignedProject = (projectList: ProjectLane[]) =>
+  projectList.some((project) => project.id === unassignedProjectId) ? projectList : [...projectList, unassignedProject];
+
 const defaultPersistedState = (): PersistedState => ({
+  schemaVersion,
   version: storageVersion,
   taskList: initialTasks,
   categoryList: categories,
-  projectList: projects,
+  projectList: ensureUnassignedProject(projects),
   widgetList: widgets,
   reviewMetricList: reviewMetrics,
   templateList: fieldTemplates,
@@ -217,10 +224,11 @@ const validatePersistedState = (value: unknown): { ok: true; state: PersistedSta
     state: {
       ...fallback,
       ...value,
+      schemaVersion,
       version: storageVersion,
       taskList: taskList as Task[],
       categoryList: categoryList as Category[],
-      projectList: projectList as ProjectLane[],
+      projectList: ensureUnassignedProject(projectList as ProjectLane[]),
       widgetList: widgetList as Widget[],
       reviewMetricList: reviewMetricList as Widget[],
       templateList: templateList as FieldTemplate[],
@@ -361,6 +369,11 @@ function App() {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [lastSavedAt, setLastSavedAt] = useState(initialState.savedAt);
   const [dataMessage, setDataMessage] = useState(initialLoad.warning);
+  const [storageMode, setStorageMode] = useState<StorageMode>('browser');
+  const [folderSaveStatus, setFolderSaveStatus] = useState<SaveStatus>('idle');
+  const [folderMessage, setFolderMessage] = useState('尚未连接本地数据文件夹。优先建议选择 T:\\日程驾驶舱数据。');
+  const [folderAdapter, setFolderAdapter] = useState<FileSystemStorageAdapter | null>(null);
+  const [folderHasDataFile, setFolderHasDataFile] = useState(false);
   const [pendingImport, setPendingImport] = useState<PersistedState | null>(null);
   const [pendingImportMessage, setPendingImportMessage] = useState('');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -434,6 +447,7 @@ function App() {
   }, [editingTask, isCreatingTask, notice, selectedProject, selectedTask]);
 
   const makeCurrentState = (): PersistedState => ({
+    schemaVersion,
     version: storageVersion,
     taskList,
     categoryList,
@@ -453,18 +467,41 @@ function App() {
   useEffect(() => {
     const state = makeCurrentState();
     setSaveStatus('saving');
-    try {
-      const previous = window.localStorage.getItem(storageKey);
-      if (previous) window.localStorage.setItem(autoBackupKey, previous);
-      window.localStorage.setItem(storageKey, JSON.stringify(state));
+    const adapter = new BrowserStorageAdapter(window.localStorage, storageKey, autoBackupKey, manualBackupKey);
+    adapter
+      .save(state)
+      .then(() => {
       setLastSavedAt(state.savedAt);
       setSaveStatus('saved');
       if (dataMessage.startsWith('保存失败')) setDataMessage('');
-    } catch {
-      setSaveStatus('failed');
-      setDataMessage('保存失败：浏览器存储空间可能不足，请先导出 JSON 备份。');
-    }
+      })
+      .catch(() => {
+        setSaveStatus('failed');
+        setDataMessage('保存失败：浏览器存储空间可能不足，请先导出 JSON 备份。');
+      });
   }, [activePresetId, categoryList, customPresetList, dailyReviewNote, displayDensity, nextWeekAdjustment, projectList, reviewMetricList, taskList, templateList, weeklyConclusion, widgetList]);
+
+  useEffect(() => {
+    if (!folderAdapter) return undefined;
+    const state = makeCurrentState();
+    setStorageMode('local-folder');
+    setFolderSaveStatus('dirty');
+    const timeout = window.setTimeout(() => {
+      setFolderSaveStatus('saving');
+      folderAdapter
+        .save(state)
+        .then(() => {
+          setLastSavedAt(state.savedAt);
+          setFolderSaveStatus('saved');
+          setFolderMessage(`已保存到硬盘：schedule-data.json（${new Date(state.savedAt).toLocaleString()}）`);
+        })
+        .catch((error: unknown) => {
+          setFolderSaveStatus('failed');
+          setFolderMessage(`保存失败：${error instanceof Error ? error.message : '无法写入本地文件夹。'}`);
+        });
+    }, 800);
+    return () => window.clearTimeout(timeout);
+  }, [activePresetId, categoryList, customPresetList, dailyReviewNote, displayDensity, folderAdapter, nextWeekAdjustment, projectList, reviewMetricList, taskList, templateList, weeklyConclusion, widgetList]);
 
   const upsertTask = (task: Task) => {
     const exists = taskList.some((item) => item.id === task.id);
@@ -501,6 +538,27 @@ function App() {
     setCreatingTaskDraft(project ? makeDefaultTask(project) : null);
     setEditingTask(null);
     setIsCreatingTask(true);
+  };
+
+  const copyTasksFromDateToToday = () => {
+    const sourceDate = window.prompt('请输入要复制的来源日期（YYYY-MM-DD）', addDays(appDate.today, -1))?.trim();
+    if (!sourceDate) return;
+    const sourceTasks = taskList.filter((task) => task.date === sourceDate);
+    if (sourceTasks.length === 0) {
+      showNotice('没有可复制任务', `${sourceDate} 没有任务。`);
+      return;
+    }
+    const copiedTasks = sourceTasks.map((task, index) => ({
+      ...task,
+      id: `t-copy-${Date.now()}-${index}`,
+      date: appDate.today,
+      status: 'planned' as TaskStatus,
+      actualDuration: undefined,
+      delayReason: '',
+      notes: task.notes ? `${task.notes}\n复制自 ${sourceDate}` : `复制自 ${sourceDate}`,
+    }));
+    setTaskList((current) => [...copiedTasks, ...current]);
+    showNotice('日计划已复制', `已从 ${sourceDate} 复制 ${copiedTasks.length} 个任务到今天。`);
   };
 
   const updateTaskStatus = (taskId: string, status: TaskStatus) => {
@@ -674,8 +732,10 @@ function App() {
 
   const addProject = (project: ProjectLane) => {
     const name = project.name.trim();
-    if (!name) return;
-    setProjectList((current) => [{ ...project, id: `p-custom-${Date.now()}`, name }, ...current]);
+    if (!name) return null;
+    const nextProject = { ...project, id: `p-custom-${Date.now()}`, name };
+    setProjectList((current) => [nextProject, ...current]);
+    return nextProject;
   };
 
   const updateProject = (projectId: string, changes: Partial<ProjectLane>) => {
@@ -707,13 +767,48 @@ function App() {
 
   const deleteProject = (projectId: string) => {
     const project = projectList.find((item) => item.id === projectId);
-    const fallback = projectList.find((item) => item.id !== projectId);
-    if (!project || !fallback) return;
-    const taskCount = taskList.filter((task) => task.projectId === projectId).length;
-    if (!window.confirm(`确认删除项目“${project.name}”？${taskCount > 0 ? `关联的 ${taskCount} 个任务会改到“${fallback.name}”。` : '此操作会移除该项目。'}`)) return;
+    if (!project || project.id === unassignedProjectId) return;
+    const relatedTasks = taskList.filter((task) => task.projectId === projectId);
+    if (relatedTasks.length === 0) {
+      if (!window.confirm(`确认删除项目“${project.name}”？此操作会移除该项目。`)) return;
+      setProjectList((current) => current.filter((item) => item.id !== projectId));
+      setSelectedProject((current) => (current?.id === projectId ? null : current));
+      return;
+    }
+    const choice = window.prompt(
+      `项目“${project.name}”关联 ${relatedTasks.length} 个任务。请输入处理方式：\n1：将这些任务移动到“未归属项目”\n2：同时删除这些任务\n3：取消`,
+      '1',
+    );
+    if (choice === null || choice.trim() === '' || choice.trim() === '3') return;
+    if (choice.trim() !== '1' && choice.trim() !== '2') {
+      showNotice('项目未删除', '请输入 1、2 或 3 选择处理方式。');
+      return;
+    }
     setProjectList((current) => current.filter((item) => item.id !== projectId));
-    setTaskList((current) => current.map((task) => (task.projectId === projectId ? { ...task, projectId: fallback.id, category: fallback.category } : task)));
+    setTaskList((current) =>
+      choice.trim() === '2'
+        ? current.filter((task) => task.projectId !== projectId)
+        : current.map((task) =>
+            task.projectId === projectId ? { ...task, projectId: unassignedProjectId, category: unassignedProject.category } : task,
+          ),
+    );
     setSelectedProject((current) => (current?.id === projectId ? null : current));
+    showNotice(
+      '项目已删除',
+      choice.trim() === '2' ? `已删除项目和 ${relatedTasks.length} 个关联任务。` : `关联任务已移动到“未归属项目”。`,
+    );
+  };
+
+  const archiveProject = (projectId: string) => {
+    const project = projectList.find((item) => item.id === projectId);
+    if (!project || project.id === unassignedProjectId) return;
+    setProjectList((current) =>
+      current.map((item) => (item.id === projectId ? { ...item, archived: !item.archived, status: item.archived ? item.status : 'paused' } : item)),
+    );
+    setSelectedProject((current) =>
+      current?.id === projectId ? { ...current, archived: !current.archived, status: current.archived ? current.status : 'paused' } : current,
+    );
+    showNotice(project.archived ? '项目已恢复' : '项目已归档', project.name);
   };
 
   const moveProject = (projectId: string, direction: -1 | 1) => {
@@ -849,7 +944,17 @@ function App() {
   const manualBackup = () => {
     try {
       const state = { ...makeCurrentState(), version: storageVersion };
-      window.localStorage.setItem(manualBackupKey, JSON.stringify(state));
+      const adapter = new BrowserStorageAdapter(window.localStorage, storageKey, autoBackupKey, manualBackupKey);
+      void adapter.createBackup(state);
+      if (folderAdapter) {
+        void folderAdapter
+          .createBackup(state)
+          .then((path) => setDataMessage(`备份已创建：浏览器缓存 + ${path}`))
+          .catch((error: unknown) =>
+            setDataMessage(`浏览器备份已保存，但硬盘备份失败：${error instanceof Error ? error.message : '无法写入本地文件夹。'}`),
+          );
+        return;
+      }
       setDataMessage(`手动备份已保存：${new Date(state.savedAt).toLocaleString()}`);
     } catch {
       setDataMessage('手动备份失败：浏览器存储空间可能不足。');
@@ -906,6 +1011,115 @@ function App() {
     setDataMessage('已恢复默认示例数据。');
   };
 
+  const selectDataFolder = async () => {
+    if (!window.showDirectoryPicker) {
+      setFolderSaveStatus('failed');
+      setFolderMessage('当前浏览器不支持 File System Access API。请使用 Chrome 或 Edge，并继续使用 JSON 导入导出作为备份。');
+      return;
+    }
+    try {
+      const directoryHandle = await window.showDirectoryPicker({
+        id: 'research-schedule-dashboard-data',
+        mode: 'readwrite',
+        startIn: 'desktop',
+      });
+      if (directoryHandle.requestPermission) {
+        const permission = await directoryHandle.requestPermission({ mode: 'readwrite' });
+        if (permission !== 'granted') {
+          setFolderSaveStatus('failed');
+          setFolderMessage('没有获得文件夹读写权限，请重新选择数据文件夹。');
+          return;
+        }
+      }
+      const adapter = new FileSystemStorageAdapter(directoryHandle);
+      const hasDataFile = await adapter.hasDataFile();
+      setFolderAdapter(adapter);
+      setFolderHasDataFile(hasDataFile);
+      setStorageMode('local-folder');
+      if (hasDataFile) {
+        setFolderSaveStatus('dirty');
+        setFolderMessage('已连接本地文件夹，检测到 schedule-data.json。可点击“从硬盘读取”恢复，或“保存到硬盘”覆盖。');
+        return;
+      }
+      const state = makeCurrentState();
+      await adapter.save(state);
+      setFolderSaveStatus('saved');
+      setFolderHasDataFile(true);
+      setLastSavedAt(state.savedAt);
+      setFolderMessage('已连接本地文件夹，并已把当前浏览器数据写入 schedule-data.json。');
+    } catch (error) {
+      setFolderSaveStatus('failed');
+      setStorageMode('browser');
+      setFolderMessage(`本地文件夹未连接：${error instanceof Error ? error.message : '用户取消或浏览器拒绝访问。'}`);
+    }
+  };
+
+  const saveToDataFolder = async () => {
+    if (!folderAdapter) {
+      setFolderMessage('尚未连接本地数据文件夹，请先选择数据文件夹。');
+      return;
+    }
+    const state = makeCurrentState();
+    setFolderSaveStatus('saving');
+    try {
+      await folderAdapter.save(state);
+      setFolderHasDataFile(true);
+      setLastSavedAt(state.savedAt);
+      setFolderSaveStatus('saved');
+      setFolderMessage(`已保存到硬盘：schedule-data.json（${new Date(state.savedAt).toLocaleString()}）`);
+    } catch (error) {
+      setFolderSaveStatus('failed');
+      setFolderMessage(`保存失败：${error instanceof Error ? error.message : '无法写入本地文件夹。'}`);
+    }
+  };
+
+  const readFromDataFolder = async () => {
+    if (!folderAdapter) {
+      setFolderMessage('尚未连接本地数据文件夹，请先选择数据文件夹。');
+      return;
+    }
+    try {
+      const loaded = await folderAdapter.load();
+      const validation = validatePersistedState(loaded);
+      if (!validation.ok) {
+        setFolderSaveStatus('failed');
+        setFolderMessage(`读取失败：${validation.message}`);
+        return;
+      }
+      applyImportedData(validation.state);
+      setFolderSaveStatus('saved');
+      setFolderHasDataFile(true);
+      setFolderMessage(`已从硬盘读取 schedule-data.json，保存时间：${new Date(validation.state.savedAt).toLocaleString()}。`);
+    } catch (error) {
+      setFolderSaveStatus('failed');
+      setFolderMessage(`读取失败：${error instanceof Error ? error.message : '无法读取 schedule-data.json。'}`);
+    }
+  };
+
+  const createDataFolderBackup = async () => {
+    if (!folderAdapter) {
+      setFolderMessage('尚未连接本地数据文件夹，请先选择数据文件夹。');
+      return;
+    }
+    const state = makeCurrentState();
+    try {
+      const path = await folderAdapter.createBackup(state);
+      setFolderMessage(`硬盘备份已创建：${path}`);
+      setFolderSaveStatus('saved');
+    } catch (error) {
+      setFolderSaveStatus('failed');
+      setFolderMessage(`备份失败：${error instanceof Error ? error.message : '无法写入 backups 文件夹。'}`);
+    }
+  };
+
+  const disconnectDataFolder = () => {
+    setFolderAdapter(null);
+    setFolderHasDataFile(false);
+    setStorageMode('browser');
+    setFolderSaveStatus('idle');
+    setFolderMessage('已断开本地文件夹，当前回到浏览器缓存模式。');
+  };
+
   return (
     <AppShell activeView={activeView} displayDensity={displayDensity} setActiveView={setActiveView} taskList={taskList}>
       <TopBar
@@ -914,6 +1128,7 @@ function App() {
         searchQuery={searchQuery}
         taskFilter={taskFilter}
         onCreateTask={() => startCreateTask()}
+        onCopyDayPlan={copyTasksFromDateToToday}
         onJumpToday={() => setActiveView('today')}
         onJumpWeek={() => setActiveView('week')}
         onSearchChange={setSearchQuery}
@@ -1001,13 +1216,18 @@ function App() {
           templateList={templateList}
           widgetList={widgetList}
           dataMessage={dataMessage}
+          folderHasDataFile={folderHasDataFile}
+          folderMessage={folderMessage}
+          folderSaveStatus={folderSaveStatus}
           lastSavedAt={lastSavedAt}
           pendingImport={pendingImport}
           pendingImportMessage={pendingImportMessage}
           saveStatus={saveStatus}
+          storageMode={storageMode}
           onAddCategory={addCategory}
           onAddProject={addProject}
           onAddTemplate={addTemplate}
+          onArchiveProject={archiveProject}
           onCancelImport={() => {
             setPendingImport(null);
             setPendingImportMessage('');
@@ -1022,10 +1242,15 @@ function App() {
           onExportMarkdownReport={exportMarkdownReport}
           onImportData={importData}
           onManualBackup={manualBackup}
+          onCreateDataFolderBackup={createDataFolderBackup}
+          onDisconnectDataFolder={disconnectDataFolder}
           onMoveProject={moveProject}
           onMoveTemplate={moveTemplate}
+          onReadFromDataFolder={readFromDataFolder}
           onRestoreDefaultData={restoreDefaultData}
+          onSaveToDataFolder={saveToDataFolder}
           onSaveCurrentPreset={saveCurrentPreset}
+          onSelectDataFolder={selectDataFolder}
           onSetDisplayDensity={setDisplayDensity}
           onToggleReviewMetric={toggleReviewMetric}
           onToggleWidget={toggleWidget}
@@ -1063,6 +1288,7 @@ function App() {
             setIsCreatingTask(false);
             setCreatingTaskDraft(null);
           }}
+          onQuickCreateProject={addProject}
           onSave={upsertTask}
         />
       )}
@@ -1076,6 +1302,7 @@ function TopBar({
   searchQuery,
   taskFilter,
   onCreateTask,
+  onCopyDayPlan,
   onJumpToday,
   onJumpWeek,
   onSearchChange,
@@ -1086,6 +1313,7 @@ function TopBar({
   searchQuery: string;
   taskFilter: TaskFilter;
   onCreateTask: () => void;
+  onCopyDayPlan: () => void;
   onJumpToday: () => void;
   onJumpWeek: () => void;
   onSearchChange: (query: string) => void;
@@ -1134,6 +1362,10 @@ function TopBar({
         <button className="primary-action" onClick={onCreateTask} type="button">
           <Plus size={16} />
           <span>新建任务</span>
+        </button>
+        <button className="secondary-action" onClick={onCopyDayPlan} type="button">
+          <Copy size={16} />
+          <span>复制日计划</span>
         </button>
         <button className="icon-button" type="button" aria-label="提醒">
           <Bell size={18} />
@@ -1267,7 +1499,7 @@ function TodayDashboard({
 }) {
   const todayMetrics = getTodayMetrics(allTasks, appDate.today);
   const energySummary = getEnergySummary(todayTasks);
-  const activeProjects = projectList.filter((project) => getTasksForProject(todayTasks, project.id).length > 0);
+  const activeProjects = projectList.filter((project) => !project.archived && getTasksForProject(todayTasks, project.id).length > 0);
   const reminders = allTasks
     .filter((task) => task.status === 'blocked' || task.status === 'delayed' || task.date === appDate.today)
     .slice(0, 3);
@@ -1555,7 +1787,7 @@ function ProjectProgress({
   onCreateProjectTask: (project: ProjectLane) => void;
   onSelectProject: (project: ProjectLane) => void;
 }) {
-  const visibleProjects = projectList;
+  const visibleProjects = projectList.filter((project) => !project.archived);
 
   return (
     <section className="page-grid">
@@ -1842,13 +2074,18 @@ function SettingsView({
   templateList,
   widgetList,
   dataMessage,
+  folderHasDataFile,
+  folderMessage,
+  folderSaveStatus,
   lastSavedAt,
   pendingImport,
   pendingImportMessage,
   saveStatus,
+  storageMode,
   onAddCategory,
   onAddProject,
   onAddTemplate,
+  onArchiveProject,
   onApplyPreset,
   onCancelImport,
   onConfirmImport,
@@ -1860,10 +2097,15 @@ function SettingsView({
   onExportMarkdownReport,
   onImportData,
   onManualBackup,
+  onCreateDataFolderBackup,
+  onDisconnectDataFolder,
   onMoveProject,
   onMoveTemplate,
+  onReadFromDataFolder,
   onRestoreDefaultData,
+  onSaveToDataFolder,
   onSaveCurrentPreset,
+  onSelectDataFolder,
   onSetDisplayDensity,
   onToggleReviewMetric,
   onToggleWidget,
@@ -1880,13 +2122,18 @@ function SettingsView({
   templateList: FieldTemplate[];
   widgetList: Widget[];
   dataMessage: string;
+  folderHasDataFile: boolean;
+  folderMessage: string;
+  folderSaveStatus: SaveStatus;
   lastSavedAt: string;
   pendingImport: PersistedState | null;
   pendingImportMessage: string;
   saveStatus: SaveStatus;
+  storageMode: StorageMode;
   onAddCategory: (name: string, color: string) => void;
   onAddProject: (project: ProjectLane) => void;
   onAddTemplate: (name: string, fields: string[]) => void;
+  onArchiveProject: (projectId: string) => void;
   onApplyPreset: (preset: ViewPreset) => void;
   onCancelImport: () => void;
   onConfirmImport: (state: PersistedState) => void;
@@ -1898,10 +2145,15 @@ function SettingsView({
   onExportMarkdownReport: () => void;
   onImportData: (file: File) => void;
   onManualBackup: () => void;
+  onCreateDataFolderBackup: () => void;
+  onDisconnectDataFolder: () => void;
   onMoveProject: (projectId: string, direction: -1 | 1) => void;
   onMoveTemplate: (templateId: string, direction: -1 | 1) => void;
+  onReadFromDataFolder: () => void;
   onRestoreDefaultData: () => void;
+  onSaveToDataFolder: () => void;
   onSaveCurrentPreset: (name: string) => void;
+  onSelectDataFolder: () => void;
   onSetDisplayDensity: (density: 'comfortable' | 'compact') => void;
   onToggleReviewMetric: (metricId: string) => void;
   onToggleWidget: (widgetId: string) => void;
@@ -2019,6 +2271,7 @@ function SettingsView({
               key={project.id}
               project={project}
               projectCount={projectList.length}
+              onArchive={() => onArchiveProject(project.id)}
               onDelete={() => onDeleteProject(project.id)}
               onMove={(direction) => onMoveProject(project.id, direction)}
               onUpdate={(changes) => onUpdateProject(project.id, changes)}
@@ -2177,14 +2430,56 @@ function SettingsView({
         <PanelTitle icon={HardDrive} title="本地备份与桌面化" />
         <div className="save-status-row">
           <InfoCell
-            label="保存状态"
+            label="浏览器缓存"
             value={saveStatus === 'saving' ? '正在保存' : saveStatus === 'failed' ? '保存失败' : '已保存'}
             alert={saveStatus === 'failed'}
           />
+          <InfoCell
+            label="本地文件夹"
+            value={
+              storageMode === 'browser'
+                ? '浏览器缓存模式'
+                : folderSaveStatus === 'dirty'
+                  ? '有未保存更改'
+                  : folderSaveStatus === 'saving'
+                    ? '正在保存到硬盘'
+                    : folderSaveStatus === 'failed'
+                      ? '保存失败'
+                      : '已连接本地文件夹'
+            }
+            alert={folderSaveStatus === 'failed'}
+          />
           <InfoCell label="最近保存" value={lastSavedAt ? new Date(lastSavedAt).toLocaleString() : '未保存'} />
-          <InfoCell label="存储版本" value={`v${storageVersion}`} />
         </div>
         {dataMessage && <div className="data-message">{dataMessage}</div>}
+        <div className="local-folder-panel">
+          <div>
+            <strong>本地数据文件夹</strong>
+            <span>{folderMessage}</span>
+            <small>
+              数据文件：schedule-data.json；备份目录：backups/；结构版本：schema v{schemaVersion}
+              {folderHasDataFile ? '；已检测到数据文件' : ''}
+            </small>
+          </div>
+          <div className="local-folder-actions">
+            <button className="primary-action" onClick={onSelectDataFolder} type="button">
+              <FolderOpen size={16} />
+              <span>选择数据文件夹</span>
+            </button>
+            <button className="secondary-action" disabled={storageMode === 'browser'} onClick={onSaveToDataFolder} type="button">
+              保存到硬盘
+            </button>
+            <button className="secondary-action" disabled={storageMode === 'browser'} onClick={onReadFromDataFolder} type="button">
+              从硬盘读取
+            </button>
+            <button className="secondary-action" disabled={storageMode === 'browser'} onClick={onCreateDataFolderBackup} type="button">
+              创建备份
+            </button>
+            <button className="danger-action" disabled={storageMode === 'browser'} onClick={onDisconnectDataFolder} type="button">
+              断开本地文件夹
+            </button>
+          </div>
+        </div>
         <div className="backup-grid">
           <div className="backup-actions">
             <button className="primary-action" onClick={onExportData} type="button">
@@ -2250,6 +2545,7 @@ function ProjectSettingsCard({
   isLast,
   project,
   projectCount,
+  onArchive,
   onDelete,
   onMove,
   onUpdate,
@@ -2259,6 +2555,7 @@ function ProjectSettingsCard({
   isLast: boolean;
   project: ProjectLane;
   projectCount: number;
+  onArchive: () => void;
   onDelete: () => void;
   onMove: (direction: -1 | 1) => void;
   onUpdate: (changes: Partial<ProjectLane>) => void;
@@ -2274,11 +2571,27 @@ function ProjectSettingsCard({
           <button aria-label="下移项目" className="icon-button" disabled={isLast} onClick={() => onMove(1)} type="button">
             <ArrowDown size={15} />
           </button>
-          <button aria-label="删除项目" className="icon-button" disabled={projectCount <= 1} onClick={onDelete} type="button">
+          <button
+            aria-label={project.archived ? '恢复项目' : '归档项目'}
+            className="icon-button"
+            disabled={project.id === unassignedProjectId}
+            onClick={onArchive}
+            type="button"
+          >
+            <RotateCcw size={15} />
+          </button>
+          <button
+            aria-label="删除项目"
+            className="icon-button"
+            disabled={projectCount <= 1 || project.id === unassignedProjectId}
+            onClick={onDelete}
+            type="button"
+          >
             <Trash2 size={15} />
           </button>
         </div>
       </div>
+      {project.archived && <span className="archive-badge">已归档</span>}
       <div className="project-settings-grid">
         <select value={project.category} onChange={(event) => onUpdate({ category: event.target.value })}>
           {categoryList.map((category) => (
@@ -2318,6 +2631,7 @@ function TaskForm({
   templateList,
   task,
   onCancel,
+  onQuickCreateProject,
   onSave,
 }: {
   categoryList: Category[];
@@ -2326,9 +2640,17 @@ function TaskForm({
   templateList: FieldTemplate[];
   task: Task | null;
   onCancel: () => void;
+  onQuickCreateProject: (project: ProjectLane) => ProjectLane | null;
   onSave: (task: Task) => void;
 }) {
   const [formError, setFormError] = useState('');
+  const [showQuickProjectForm, setShowQuickProjectForm] = useState(false);
+  const [quickProjectDraft, setQuickProjectDraft] = useState({
+    name: '',
+    category: categoryList[0]?.id ?? 'writing',
+    deadline: draftSafeDate(),
+    next: '',
+  });
   const [draft, setDraft] = useState<Task>(
     task ?? initialTask ?? {
       id: `t-${Date.now()}`,
@@ -2349,6 +2671,10 @@ function TaskForm({
       detail: '',
     },
   );
+
+  function draftSafeDate() {
+    return appDate.today;
+  }
 
   const updateDraft = <K extends keyof Task>(key: K, value: Task[K]) => {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -2372,6 +2698,41 @@ function TaskForm({
       ...current,
       detail: current.detail.trim() ? `${current.detail.trim()}\n${templateText}` : templateText,
     }));
+  };
+
+  const submitQuickProject = () => {
+    const name = quickProjectDraft.name.trim();
+    if (!name) {
+      setFormError('请填写新项目名称。');
+      return;
+    }
+    const project = onQuickCreateProject({
+      id: '',
+      name,
+      category: quickProjectDraft.category,
+      stage: '计划中',
+      status: 'active',
+      deadline: quickProjectDraft.deadline || appDate.today,
+      progress: 0,
+      next: quickProjectDraft.next.trim() || '补充下一步任务',
+      blocker: '暂无',
+      cadence: '每周推进',
+      milestones: [],
+      trend: [0],
+    });
+    if (!project) {
+      setFormError('新项目创建失败，请检查项目名称。');
+      return;
+    }
+    setDraft((current) => ({
+      ...current,
+      projectId: project.id,
+      category: project.category,
+      detail: current.detail || project.next,
+    }));
+    setQuickProjectDraft((current) => ({ ...current, name: '', next: '' }));
+    setShowQuickProjectForm(false);
+    setFormError('');
   };
 
   const submitTask = (event: FormEvent<HTMLFormElement>) => {
@@ -2449,15 +2810,62 @@ function TaskForm({
           </select>
         </label>
         <label className="field">
-          <span>所属项目</span>
-          <select value={draft.projectId} onChange={(event) => updateDraftProject(event.target.value)}>
+          <span className="field-label-row">
+            所属项目
+            <button
+              aria-label="新建项目"
+              className="inline-link-button"
+              onClick={() => setShowQuickProjectForm((current) => !current)}
+              type="button"
+            >
+              <Plus size={14} />
+              新建项目
+            </button>
+          </span>
+          <select aria-label="所属项目" value={draft.projectId} onChange={(event) => updateDraftProject(event.target.value)}>
             {projectList.map((project) => (
               <option key={project.id} value={project.id}>
-                {project.name}
+                {project.archived ? `${project.name}（已归档）` : project.name}
               </option>
             ))}
           </select>
         </label>
+        {showQuickProjectForm && (
+          <div className="quick-project-form span-2">
+            <input
+              aria-label="新项目名称"
+              placeholder="新项目名称"
+              value={quickProjectDraft.name}
+              onChange={(event) => setQuickProjectDraft((current) => ({ ...current, name: event.target.value }))}
+            />
+            <select
+              aria-label="新项目类型"
+              value={quickProjectDraft.category}
+              onChange={(event) => setQuickProjectDraft((current) => ({ ...current, category: event.target.value }))}
+            >
+              {categoryList.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+            <input
+              aria-label="新项目截止日期"
+              type="date"
+              value={quickProjectDraft.deadline}
+              onChange={(event) => setQuickProjectDraft((current) => ({ ...current, deadline: event.target.value }))}
+            />
+            <input
+              aria-label="新项目下一步"
+              placeholder="下一步"
+              value={quickProjectDraft.next}
+              onChange={(event) => setQuickProjectDraft((current) => ({ ...current, next: event.target.value }))}
+            />
+            <button className="primary-action" onClick={submitQuickProject} type="button">
+              创建并选中
+            </button>
+          </div>
+        )}
         {!task && (
           <label className="field">
             <span>套用模板</span>

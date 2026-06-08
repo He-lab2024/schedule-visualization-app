@@ -36,6 +36,43 @@ describe('App core workflows', () => {
     expect(screen.getByRole('combobox', { name: '所属项目' })).toHaveTextContent('TA 论文');
   });
 
+  it('creates a project from the task form and selects it', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: '新建任务' }));
+    await user.click(screen.getByRole('button', { name: '新建项目' }));
+    await user.type(screen.getByLabelText('新项目名称'), '临时投稿项目');
+    await user.click(screen.getByRole('button', { name: '创建并选中' }));
+
+    expect(screen.getByRole('combobox', { name: '所属项目' })).toHaveTextContent('临时投稿项目');
+  });
+
+  it('moves tasks to unassigned project when deleting a project with tasks', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, 'prompt').mockReturnValue('1');
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: '设置模板' }));
+    await user.click(screen.getAllByLabelText('删除项目')[0]);
+
+    expect(window.prompt).toHaveBeenCalled();
+    expect(screen.getByText('项目已删除')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('未归属项目')).toBeInTheDocument();
+  });
+
+  it('shows local folder storage controls in settings', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: '设置模板' }));
+
+    expect(screen.getByText('本地数据文件夹')).toBeInTheDocument();
+    expect(screen.getByText('浏览器缓存模式')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '选择数据文件夹' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '保存到硬盘' })).toBeDisabled();
+  });
+
   it('undoes batch completion from the action notice', async () => {
     const user = userEvent.setup();
     render(<App />);
