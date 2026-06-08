@@ -3069,4 +3069,4 @@ function TemplateCard({
   );
 }
 
-export { App };
+export { App, defaultPersistedState, storageKey, storageVersion, validatePersistedState };
