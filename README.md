@@ -68,7 +68,7 @@ node "D:\Download\Node\node_modules\npm\bin\npm-cli.js" run build
 
 ## 部署
 
-仓库包含 GitHub Pages workflow。推送到 `main` 后，工作流会运行测试、构建并上传 `dist/`。
+仓库包含 GitHub Pages workflow。推送到 `main` 后，工作流会运行测试、构建并上传 `dist/`。更多排障细节见 [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)。
 
 首次使用 GitHub Pages 时，需要在仓库设置中把 Pages source 设为 **GitHub Actions**。
 
