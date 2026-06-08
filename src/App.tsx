@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowDown,
@@ -33,7 +33,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import type { CSSProperties, ComponentType, FormEvent, ReactNode } from 'react';
+import type { CSSProperties, ComponentType, FormEvent, ReactNode, RefObject } from 'react';
 import { appDate, categories, fieldTemplates, projects, tasks as initialTasks, viewPresets, weekDays, widgets } from './mockData';
 import {
   getCategoryMap,
@@ -86,6 +86,12 @@ const parseDelimitedFields = (value: string) =>
     .map((field) => field.trim())
     .filter(Boolean);
 
+const addDays = (date: string, days: number) => {
+  const next = new Date(`${date}T00:00:00`);
+  next.setDate(next.getDate() + days);
+  return next.toISOString().slice(0, 10);
+};
+
 type PersistedState = {
   version: number;
   taskList: Task[];
@@ -105,6 +111,13 @@ type PersistedState = {
 
 type SaveStatus = 'saving' | 'saved' | 'failed';
 type TaskFilter = 'all' | 'active' | 'risk' | 'done';
+type ActionNotice = {
+  id: string;
+  title: string;
+  text: string;
+  actionLabel?: string;
+  onAction?: () => void;
+};
 
 const storageKey = 'research-schedule-dashboard-state-v1';
 const autoBackupKey = `${storageKey}-auto-backup`;
@@ -358,6 +371,8 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [taskFilter, setTaskFilter] = useState<TaskFilter>('all');
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set());
+  const [notice, setNotice] = useState<ActionNotice | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const filteredTasks = useMemo(
     () =>
@@ -369,6 +384,16 @@ function App() {
   const todayTasks = useMemo(() => getTasksForDate(filteredTasks, appDate.today), [filteredTasks]);
   const currentProjectMap = useMemo(() => toMap(projectList), [projectList]);
 
+  const showNotice = (title: string, text: string, action?: { label: string; run: () => void }) => {
+    setNotice({
+      id: `notice-${Date.now()}`,
+      title,
+      text,
+      actionLabel: action?.label,
+      onAction: action?.run,
+    });
+  };
+
   useEffect(() => {
     setSelectedTaskIds((current) => {
       const existingIds = new Set(taskList.map((task) => task.id));
@@ -376,6 +401,37 @@ function App() {
       return next.size === current.size ? current : next;
     });
   }, [taskList]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+
+      if (event.key !== 'Escape') return;
+      if (editingTask || isCreatingTask) {
+        setEditingTask(null);
+        setIsCreatingTask(false);
+        setCreatingTaskDraft(null);
+        return;
+      }
+      if (selectedTask) {
+        setSelectedTask(null);
+        return;
+      }
+      if (selectedProject) {
+        setSelectedProject(null);
+        return;
+      }
+      if (notice) setNotice(null);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [editingTask, isCreatingTask, notice, selectedProject, selectedTask]);
 
   const makeCurrentState = (): PersistedState => ({
     version: storageVersion,
@@ -411,14 +467,15 @@ function App() {
   }, [activePresetId, categoryList, customPresetList, dailyReviewNote, displayDensity, nextWeekAdjustment, projectList, reviewMetricList, taskList, templateList, weeklyConclusion, widgetList]);
 
   const upsertTask = (task: Task) => {
+    const exists = taskList.some((item) => item.id === task.id);
     setTaskList((current) => {
-      const exists = current.some((item) => item.id === task.id);
       return exists ? current.map((item) => (item.id === task.id ? task : item)) : [task, ...current];
     });
     setSelectedTask(task);
     setEditingTask(null);
     setIsCreatingTask(false);
     setCreatingTaskDraft(null);
+    showNotice(exists ? '任务已更新' : '任务已创建', task.title);
   };
 
   const makeDefaultTask = (project?: ProjectLane): Task => ({
@@ -447,19 +504,23 @@ function App() {
   };
 
   const updateTaskStatus = (taskId: string, status: TaskStatus) => {
-    setTaskList((current) =>
-      current.map((task) => {
-        if (task.id !== taskId) return task;
-        const needsReason = (status === 'delayed' || status === 'blocked') && !task.delayReason?.trim();
-        const delayReason = needsReason
-          ? window.prompt(status === 'blocked' ? '请填写阻塞原因' : '请填写延期原因')?.trim()
-          : task.delayReason;
-        if (needsReason && !delayReason) return task;
-        const nextTask = { ...task, status, delayReason };
-        setSelectedTask(nextTask);
-        return nextTask;
-      }),
-    );
+    const originalTask = taskList.find((task) => task.id === taskId);
+    if (!originalTask) return;
+    const needsReason = (status === 'delayed' || status === 'blocked') && !originalTask.delayReason?.trim();
+    const delayReason = needsReason
+      ? window.prompt(status === 'blocked' ? '请填写阻塞原因' : '请填写延期原因')?.trim()
+      : originalTask.delayReason;
+    if (needsReason && !delayReason) return;
+    const nextTask = { ...originalTask, status, delayReason };
+    setTaskList((current) => current.map((task) => (task.id === taskId ? nextTask : task)));
+    setSelectedTask(nextTask);
+    showNotice('任务状态已更新', `${originalTask.title} -> ${statusLabel[status]}`, {
+      label: '撤销',
+      run: () => {
+        setTaskList((current) => current.map((task) => (task.id === taskId ? originalTask : task)));
+        setSelectedTask((current) => (current?.id === taskId ? originalTask : current));
+      },
+    });
   };
 
   const deleteTask = (taskId: string) => {
@@ -473,6 +534,13 @@ function App() {
       next.delete(taskId);
       return next;
     });
+    showNotice('任务已删除', task.title, {
+      label: '撤销',
+      run: () => {
+        setTaskList((current) => (current.some((item) => item.id === task.id) ? current : [task, ...current]));
+        setSelectedTask(task);
+      },
+    });
   };
 
   const duplicateTask = (task: Task) => {
@@ -484,6 +552,7 @@ function App() {
     };
     setTaskList((current) => [nextTask, ...current]);
     setSelectedTask(nextTask);
+    showNotice('任务已复制', nextTask.title);
   };
 
   const toggleTaskSelection = (taskId: string) => {
@@ -508,10 +577,21 @@ function App() {
 
   const batchCompleteTasks = () => {
     if (selectedTaskIds.size === 0) return;
+    const changedTasks = taskList.filter((task) => selectedTaskIds.has(task.id) && task.status !== 'done');
     setTaskList((current) =>
       current.map((task) => (selectedTaskIds.has(task.id) ? { ...task, status: 'done' } : task)),
     );
     setSelectedTask((current) => (current && selectedTaskIds.has(current.id) ? { ...current, status: 'done' } : current));
+    if (changedTasks.length > 0) {
+      showNotice('批量完成已应用', `${changedTasks.length} 个任务已标记完成`, {
+        label: '撤销',
+        run: () => {
+          setTaskList((current) =>
+            current.map((task) => changedTasks.find((item) => item.id === task.id) ?? task),
+          );
+        },
+      });
+    }
   };
 
   const batchUpdateDate = (date: string) => {
@@ -535,9 +615,19 @@ function App() {
   const batchDeleteTasks = () => {
     if (selectedTaskIds.size === 0) return;
     if (!window.confirm(`确认删除已选择的 ${selectedTaskIds.size} 个任务？此操作会从当前数据中移除它们。`)) return;
+    const deletedTasks = taskList.filter((task) => selectedTaskIds.has(task.id));
     setTaskList((current) => current.filter((task) => !selectedTaskIds.has(task.id)));
     setSelectedTask((current) => (current && selectedTaskIds.has(current.id) ? null : current));
     clearSelectedTasks();
+    showNotice('批量删除已完成', `${deletedTasks.length} 个任务已删除`, {
+      label: '撤销',
+      run: () => {
+        setTaskList((current) => {
+          const existingIds = new Set(current.map((task) => task.id));
+          return [...deletedTasks.filter((task) => !existingIds.has(task.id)), ...current];
+        });
+      },
+    });
   };
 
   const addCategory = (name: string, color: string) => {
@@ -820,6 +910,7 @@ function App() {
     <AppShell activeView={activeView} displayDensity={displayDensity} setActiveView={setActiveView} taskList={taskList}>
       <TopBar
         activeView={activeView}
+        searchInputRef={searchInputRef}
         searchQuery={searchQuery}
         taskFilter={taskFilter}
         onCreateTask={() => startCreateTask()}
@@ -828,6 +919,7 @@ function App() {
         onSearchChange={setSearchQuery}
         onTaskFilterChange={setTaskFilter}
       />
+      <ActionNoticeBar notice={notice} onDismiss={() => setNotice(null)} />
       {activeView !== 'settings' && (
         <BatchToolbar
           categoryList={categoryList}
@@ -980,6 +1072,7 @@ function App() {
 
 function TopBar({
   activeView,
+  searchInputRef,
   searchQuery,
   taskFilter,
   onCreateTask,
@@ -989,6 +1082,7 @@ function TopBar({
   onTaskFilterChange,
 }: {
   activeView: ViewId;
+  searchInputRef: RefObject<HTMLInputElement | null>;
   searchQuery: string;
   taskFilter: TaskFilter;
   onCreateTask: () => void;
@@ -1012,6 +1106,7 @@ function TopBar({
           <input
             aria-label="搜索任务"
             placeholder="论文、实验、项目、地点"
+            ref={searchInputRef}
             value={searchQuery}
             onChange={(event) => onSearchChange(event.target.value)}
           />
@@ -1045,6 +1140,32 @@ function TopBar({
         </button>
       </div>
     </header>
+  );
+}
+
+function ActionNoticeBar({ notice, onDismiss }: { notice: ActionNotice | null; onDismiss: () => void }) {
+  if (!notice) return null;
+
+  const runAction = () => {
+    notice.onAction?.();
+    onDismiss();
+  };
+
+  return (
+    <div className="action-notice" role="status" aria-live="polite">
+      <div>
+        <strong>{notice.title}</strong>
+        <span>{notice.text}</span>
+      </div>
+      {notice.onAction && notice.actionLabel && (
+        <button className="secondary-action" onClick={runAction} type="button">
+          {notice.actionLabel}
+        </button>
+      )}
+      <button className="icon-button" onClick={onDismiss} type="button" aria-label="关闭提示">
+        ×
+      </button>
+    </div>
   );
 }
 
@@ -2233,6 +2354,16 @@ function TaskForm({
     setDraft((current) => ({ ...current, [key]: value }));
   };
 
+  const updateDraftProject = (projectId: string) => {
+    const project = projectList.find((item) => item.id === projectId);
+    setDraft((current) => ({
+      ...current,
+      projectId,
+      category: project?.category ?? current.category,
+      detail: current.detail || project?.next || '',
+    }));
+  };
+
   const applyTemplate = (templateId: string) => {
     const template = templateList.find((item) => item.id === templateId);
     if (!template) return;
@@ -2252,6 +2383,18 @@ function TaskForm({
 
     if (!title) {
       setFormError('请填写任务标题。');
+      return;
+    }
+    if (!projectList.some((project) => project.id === draft.projectId)) {
+      setFormError('请选择有效项目。');
+      return;
+    }
+    if (!draft.date) {
+      setFormError('请选择任务日期。');
+      return;
+    }
+    if (!draft.start) {
+      setFormError('请选择开始时间。');
       return;
     }
     if (!Number.isFinite(duration) || duration < 15) {
@@ -2293,7 +2436,7 @@ function TaskForm({
 
         <label className="field span-2">
           <span>标题</span>
-          <input value={draft.title} onChange={(event) => updateDraft('title', event.target.value)} />
+          <input autoFocus value={draft.title} onChange={(event) => updateDraft('title', event.target.value)} />
         </label>
         <label className="field">
           <span>类别</span>
@@ -2307,7 +2450,7 @@ function TaskForm({
         </label>
         <label className="field">
           <span>所属项目</span>
-          <select value={draft.projectId} onChange={(event) => updateDraft('projectId', event.target.value)}>
+          <select value={draft.projectId} onChange={(event) => updateDraftProject(event.target.value)}>
             {projectList.map((project) => (
               <option key={project.id} value={project.id}>
                 {project.name}
@@ -2339,6 +2482,17 @@ function TaskForm({
         <label className="field">
           <span>日期</span>
           <input value={draft.date} onChange={(event) => updateDraft('date', event.target.value)} type="date" />
+          <div className="quick-date-buttons">
+            <button onClick={() => updateDraft('date', appDate.today)} type="button">
+              今天
+            </button>
+            <button onClick={() => updateDraft('date', addDays(appDate.today, 1))} type="button">
+              明天
+            </button>
+            <button onClick={() => updateDraft('date', addDays(appDate.today, 7))} type="button">
+              下周
+            </button>
+          </div>
         </label>
         <label className="field">
           <span>开始时间</span>
@@ -2423,7 +2577,11 @@ function TaskForm({
           <textarea value={draft.detail} onChange={(event) => updateDraft('detail', event.target.value)} />
         </label>
 
-        {formError && <div className="form-error">{formError}</div>}
+        {formError && (
+          <div className="form-error" role="alert">
+            {formError}
+          </div>
+        )}
         <div className="form-actions">
           <button className="secondary-action" onClick={onCancel} type="button">
             取消
